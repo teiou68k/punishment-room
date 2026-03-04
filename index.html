@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>調教部屋</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 20px; background: #f0f0f0; }
+        #login-screen { text-align: center; margin-top: 100px; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+        #chat-screen { display: none; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #chat-log { border: 1px solid #ddd; height: 500px; overflow-y: scroll; padding: 15px; background: #fff; margin-bottom: 10px; border-radius: 5px; }
+        .msg { margin: 8px 0; border-bottom: 1px solid #f0f0f0; padding-bottom: 5px; line-height: 1.4; }
+        .system-msg { color: #888; font-size: 0.85em; margin: 5px 0; text-align: left; }
+        .private-msg { background-color: #fff9f9; border-left: 4px solid #ff7878; padding-left: 8px; }
+        #user-list-display { font-size: 0.9em; color: #555; background: #eee; padding: 5px 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <audio id="sound-in" src="./sounds/in.mp3"></audio>
+    <audio id="sound-out" src="./sounds/out.mp3"></audio>
+
+    <div id="login-screen">
+        <h1>調教部屋 入室</h1>
+        <input type="text" id="login-name" placeholder="名前を入力" style="padding: 8px; width: 200px;"><br><br>
+        <input type="color" id="user-color" value="#000000"> <span>文字色を選択</span><br><br>
+        <button id="enter-btn" onclick="enterChat()" style="padding: 10px 30px; background: #333; color: white; border: none; cursor: pointer;">入室する</button>
+        <p id="loading-msg" style="display:none; color:#888; margin-top:10px;">接続中...</p>
+        
+        <div style="margin-top: 50px; font-size: 10px; color: #aaa;">
+            <p>※入退室時に音が出ます</p>
+            <p>Sound by <a href="https://otologic.jp" target="_blank" rel="noopener noreferrer" style="color: #aaa; text-decoration: underline;">OtoLogic</a> (CC BY 4.0)</p>
+        </div>
+    </div>
+
+    <div id="chat-screen">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <h2 style="margin: 0;">調教部屋</h2>
+                <div id="user-list-display">参加者: 取得中...</div>
+            </div>
+            <button onclick="leaveChat()" style="background: #e74c3c; color: white; border: none; padding: 5px 15px; cursor: pointer;">退室</button>
+        </div>
+        <div id="chat-log"></div>
+        <div style="display: flex; gap: 10px;">
+            <select id="to-user" style="padding: 8px;"></select>
+            <input type="text" id="message" placeholder="「罰」/「オールクリア」" style="flex-grow: 1; padding: 8px;">
+            <button onclick="handleSend()" style="padding: 8px 20px; background: #2ecc71; color: white; border: none; cursor: pointer;">送信</button>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://epintmtwdilimfwehyvz.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_CLHyNE7FTMfV4oTHJwVj0g_YGkoe_la';
+        const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let myName = "";
+        let myColor = "#000000";
+        let lastActivity = Date.now();
+        let mainChannel;
+        let isEntered = false;
+
+        // 効果音の要素を取得
+        const audioIn = document.getElementById('sound-in');
+        const audioOut = document.getElementById('sound-out');
+
+        window.onload = () => {
+            document.getElementById('login-name').value = localStorage.getItem('chat_user_name') || "";
+            document.getElementById('user-color').value = localStorage.getItem('chat_user_color') || "#000000";
+        };
+
+        function getFormattedTime() {
+            const now = new Date();
+            return String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
+        }
+
+        async function enterChat() {
+            const nameInput = document.getElementById('login-name').value.trim();
+            if (!nameInput) return alert("名前を入力してください");
+
+            // ブラウザの音再生制限を解除（一度ミュートで再生）
+            audioIn.play().then(() => { audioIn.pause(); audioIn.currentTime = 0; });
+            audioOut.play().then(() => { audioOut.pause(); audioOut.currentTime = 0; });
+
+            document.getElementById('enter-btn').disabled = true;
+            document.getElementById('loading-msg').style.display = 'block';
+
+            myName = nameInput;
+            myColor = document.getElementById('user-color').value;
+            localStorage.setItem('chat_user_name', myName);
+            localStorage.setItem('chat_user_color', myColor);
+
+            mainChannel = client.channel('room-1', { config: { presence: { key: myName } } });
+
+            mainChannel
+                .on('presence', { event: 'sync' }, async () => {
+                    const state = mainChannel.presenceState();
+                    updateUserList(state);
+                    
+                    if (!isEntered) {
+                        isEntered = true; 
+                        if (Object.keys(state).length <= 1) {
+                            await client.from('messages').delete().neq('id', 0);
+                        }
+                        await loadPastMessages();
+                        document.getElementById('login-screen').style.display = 'none';
+                        document.getElementById('chat-screen').style.display = 'block';
+                        await sendSystemMessage(`${myName}さんが入室しました`);
+                    }
+                })
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    displayMessage(payload.new);
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, () => {
+                    document.getElementById('chat-log').innerHTML = "";
+                })
+                .subscribe(async (status) => {
+                    if (status === 'SUBSCRIBED') {
+                        await mainChannel.track({ online_at: new Date().toISOString() });
+                    }
+                });
+
+            document.getElementById('message').addEventListener('keypress', e => { if (e.key === 'Enter') handleSend(); });
+            setInterval(checkInactivity, 60000);
+        }
+
+        async function loadPastMessages() {
+            const { data } = await client.from('messages').select('*').order('id', { ascending: true }).limit(50);
+            const log = document.getElementById('chat-log');
+            log.innerHTML = "";
+            if (data) data.forEach(msg => displayMessage(msg));
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function handleSend() {
+            lastActivity = Date.now();
+            const messageEl = document.getElementById('message');
+            const toUser = document.getElementById('to-user').value;
+            const content = messageEl.value.trim();
+            if (!content) return;
+
+            if (content === "オールクリア") {
+                await client.from('messages').delete().neq('id', 0);
+                await sendSystemMessage(`【システム】${myName}さんがログを全消去しました`);
+                messageEl.value = ''; return;
+            }
+
+            let finalContent = content;
+            let finalToUser = toUser || null;
+
+            if (content === "罰") {
+                const { data } = await client.from('punishments').select('*');
+                if (data && data.length > 0) {
+                    const p = data[Math.floor(Math.random() * data.length)];
+                    finalContent = `【罰発動】 内容：${p.first_time} (パス：${p.pass_status} / 逝き奴隷：${p.iki_slave})`;
+                }
+                finalToUser = null; 
+            }
+
+            await client.from('messages').insert([{ username: myName, content: finalContent, color: myColor, to_user: finalToUser }]);
+            messageEl.value = '';
+        }
+
+        function displayMessage(msg) {
+            const log = document.getElementById('chat-log');
+            const isIM = msg.to_user === "@ALL_PRIVATE";
+            if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) return;
+
+            // 音声再生ロジック
+            if (msg.username === 'SYSTEM') {
+                // 自分以外の入室メッセージを受信したとき
+                if (msg.content.includes("入室しました") && !msg.content.includes(myName)) {
+                    audioIn.currentTime = 0;
+                    audioIn.play().catch(e => console.log("再生ブロック:", e));
+                }
+                // 退室メッセージを受信したとき
+                if (msg.content.includes("退室しました")) {
+                    audioOut.currentTime = 0;
+                    audioOut.play().catch(e => console.log("再生ブロック:", e));
+                }
+            }
+
+            const div = document.createElement('div');
+            const timeStr = getFormattedTime();
+
+            if (msg.username === 'SYSTEM') {
+                div.className = 'system-msg';
+                div.textContent = `${timeStr} ${msg.content}`;
+            } else {
+                div.className = 'msg';
+                if (msg.to_user) div.classList.add('private-msg');
+                let toLabel = isIM ? `<span style="color:red;">[IM:全員へ]</span> ` : (msg.to_user ? `<span style="color:red;">[${msg.to_user}へ]</span> ` : "");
+                div.innerHTML = `<small style="color:#aaa;">${timeStr}</small> <strong style="color:${msg.color}">${msg.username}</strong>: ${toLabel}${msg.content}`;
+            }
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateUserList(state) {
+            const select = document.getElementById('to-user');
+            const display = document.getElementById('user-list-display');
+            const names = Object.keys(state).sort();
+            display.textContent = `参加者(${names.length}名): ${names.join(', ')}`;
+            const currentTo = select.value;
+            select.innerHTML = '<option value="">（空白）</option>';
+            names.forEach(n => { if (n !== myName) { const o = document.createElement('option'); o.value = n; o.textContent = n; select.appendChild(o); } });
+            const im = document.createElement('option'); im.value = "@ALL_PRIVATE"; im.textContent = "IM"; select.appendChild(im);
+            select.value = currentTo;
+        }
+
+        async function sendSystemMessage(text) {
+            return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888' }]);
+        }
+
+        async function leaveChat() {
+            await sendSystemMessage(`${myName}さんが退室しました`);
+            setTimeout(() => { location.reload(); }, 300);
+        }
+
+        function checkInactivity() {
+            if (Date.now() - lastActivity > 20 * 60 * 1000) {
+                alert("20分間操作がなかったため自動退室します");
+                leaveChat();
+            }
+        }
+    </script>
+</body>
+</html>
