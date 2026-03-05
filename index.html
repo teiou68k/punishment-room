@@ -47,13 +47,40 @@
             -webkit-overflow-scrolling: touch;
         }
         
-        .msg, .system-msg { display: flex; align-items: flex-start; padding: 6px 4px; border-bottom: 1px solid #f5f5f5; font-size: 14px; line-height: 1.4; width: 100%; box-sizing: border-box; }
-        .msg-time { color: #aaa; font-size: 10px; width: 45px; min-width: 45px; margin-top: 2px; }
+        /* メッセージ共通設定 */
+        .msg, .system-msg { 
+            display: flex; 
+            align-items: flex-start; 
+            padding: 6px 4px; 
+            border-bottom: 1px solid #f5f5f5; 
+            font-size: 14px; 
+            line-height: 1.4; 
+            width: 100%; 
+            box-sizing: border-box; 
+        }
+        .msg-time { 
+            color: #aaa; 
+            font-size: 10px; 
+            width: 65px; 
+            min-width: 65px; 
+            margin-top: 2px; 
+            flex-shrink: 0; 
+        }
         .msg-content { flex-grow: 1; overflow-wrap: anywhere; }
 
         .system-msg { color: #888; background-color: #fcfcfc; }
         .private-msg { background-color: #fff5f5; }
-        .punishment-msg { background-color: #eeeeee !important; padding: 10px !important; border-radius: 5px; margin: 4px 0; border: none !important; }
+
+        /* 罰メッセージ：時刻のズレを修正 */
+        .punishment-msg { 
+            background-color: #eeeeee !important; 
+            padding: 10px 4px !important; /* 横のパディングを通常に合わせる */
+            border-radius: 8px; 
+            margin: 6px 0; 
+            border: none !important; 
+            display: flex !important; /* 強制的に横並びを維持 */
+            align-items: flex-start !important;
+        }
         .punishment-type { color: #ff0000; font-weight: bold; }
 
         .my-name-link { font-weight: bold; text-decoration: underline; cursor: pointer; }
@@ -221,31 +248,38 @@
             let finalContent = content;
             let finalUsername = myName;
             let finalToUser = toUser || null;
+
             if (content === "オールクリア") {
                 if(confirm("ログを全消去しますか？")) { await client.from('messages').delete().neq('id', 0); }
                 messageEl.value = ''; return;
             }
-            const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
-            if (diceMatch) {
-                const num = Math.min(parseInt(diceMatch[1]), 100);
-                const sides = Math.min(parseInt(diceMatch[2]), 100);
-                const plus = parseInt(diceMatch[3] || 0);
-                let rolls = []; let total = 0;
-                for(let i=0; i<num; i++) {
-                    const r = Math.floor(Math.random() * sides) + 1;
-                    rolls.push(r); total += r;
+
+            // --- コマンド判定：宛先が空（全員）の時だけ実行 ---
+            if (!toUser) {
+                const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
+                if (diceMatch) {
+                    const num = Math.min(parseInt(diceMatch[1]), 100);
+                    const sides = Math.min(parseInt(diceMatch[2]), 100);
+                    const plus = parseInt(diceMatch[3] || 0);
+                    let rolls = []; let total = 0;
+                    for(let i=0; i<num; i++) {
+                        const r = Math.floor(Math.random() * sides) + 1;
+                        rolls.push(r); total += r;
+                    }
+                    total += plus;
+                    finalContent = `🎲 (${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
                 }
-                total += plus;
-                finalContent = `🎲 (${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
-            }
-            if (content === "罰") {
-                const { data } = await client.from('punishments').select('*');
-                if (data && data.length > 0) {
-                    const p = data[Math.floor(Math.random() * data.length)];
-                    finalUsername = "PUNISHMENT";
-                    finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}/2回目：${p.second_time}/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込：${p.maki_slave}`;
+
+                if (content === "罰") {
+                    const { data } = await client.from('punishments').select('*');
+                    if (data && data.length > 0) {
+                        const p = data[Math.floor(Math.random() * data.length)];
+                        finalUsername = "PUNISHMENT";
+                        finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}/2回目：${p.second_time}/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込：${p.maki_slave}`;
+                    }
                 }
             }
+            
             await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP }]);
             messageEl.value = '';
         }
@@ -254,9 +288,15 @@
             const log = document.getElementById('chat-log');
             const isIM = msg.to_user === "@ALL_PRIVATE";
             if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) return;
+            
             const div = document.createElement('div');
+            
+            // --- 時刻フォーマット：hh:mm:ss ---
             const d = msg.created_at ? new Date(msg.created_at) : new Date();
-            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + String(d.getMinutes()).padStart(2, '0');
+            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + 
+                            String(d.getMinutes()).padStart(2, '0') + ":" + 
+                            String(d.getSeconds()).padStart(2, '0');
+            
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
                 div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
