@@ -2,84 +2,78 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>調教部屋</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; background: #f0f0f0; padding: 10px; height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; }
-        #login-screen, #chat-screen { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: auto; box-sizing: border-box; }
-        #login-screen { text-align: center; width: 100%; max-width: 450px; }
-        #login-screen input[type="text"] { width: 80%; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 5px; }
-        #chat-screen { display: none; width: 100%; max-width: 900px; height: 100%; flex-direction: column; position: relative; }
-        #chat-log { border: 1px solid #ddd; flex-grow: 1; overflow-y: scroll; padding: 15px; background: #fff; margin-bottom: 10px; border-radius: 5px; font-size: 14px; overflow-wrap: anywhere; word-break: normal; line-height: 1.5; }
-        .input-area { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
-        #message { flex-grow: 1; padding: 12px; font-size: 16px; border-radius: 5px; border: 1px solid #ddd; min-width: 0; }
-        #to-user { padding: 11px 5px; border-radius: 5px; border: 1px solid #ddd; background: #fff; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; background: #f0f0f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         
-        .msg, .system-msg { display: flex; align-items: flex-start; margin: 4px 0; padding: 4px 8px; text-align: left; border-bottom: 1px solid #f0f0f0; box-sizing: border-box; width: 100%; }
-        .msg-time { color: #aaa; font-size: 12px; white-space: nowrap; width: 65px; min-width: 65px; display: inline-block; margin-right: 10px; box-sizing: border-box; }
-        .system-msg { color: #888; font-size: 14px; }
-        .private-msg { background-color: #fff9f9; }
+        /* ログイン画面 */
+        #login-screen { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: auto; width: 90%; max-width: 450px; text-align: center; }
+        #login-screen input[type="text"] { width: 80%; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; }
+
+        /* チャット画面 */
+        #chat-screen { display: none; height: 100%; flex-direction: column; background: #fff; }
+        .header-area { background: #f9f9f9; border-bottom: 1px solid #ddd; padding: 8px; z-index: 100; }
+        .input-area { display: flex; gap: 5px; align-items: center; padding: 5px 0; }
+        #message { flex-grow: 1; padding: 10px; font-size: 16px; border: 1px solid #ddd; border-radius: 5px; min-width: 0; }
+        #to-user { padding: 9px 2px; border: 1px solid #ddd; border-radius: 5px; background: #fff; font-size: 12px; }
+        #send-btn { padding: 10px 15px; background: #2ecc71; color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+
+        .info-bar { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #666; padding: 2px 5px; border-bottom: 1px solid #eee; }
+
+        /* ログエリア */
+        #chat-log { flex-grow: 1; overflow-y: scroll; display: flex; flex-direction: column; padding: 5px; background: #fff; }
         
-        /* 罰コマンド専用スタイル（赤線なし） */
-        .punishment-msg { background-color: #e0e0e0 !important; padding: 10px !important; border: none !important; }
+        .msg, .system-msg { display: flex; align-items: flex-start; padding: 6px 4px; border-bottom: 1px solid #f5f5f5; font-size: 14px; line-height: 1.4; width: 100%; box-sizing: border-box; }
+        .msg-time { color: #aaa; font-size: 10px; width: 45px; min-width: 45px; margin-top: 2px; }
+        .msg-content { flex-grow: 1; overflow-wrap: anywhere; }
+
+        .system-msg { color: #888; background-color: #fcfcfc; }
+        .private-msg { background-color: #fff5f5; }
+        .punishment-msg { background-color: #eeeeee !important; padding: 10px !important; border-radius: 5px; margin: 4px 0; border: none !important; }
         .punishment-type { color: #ff0000; font-weight: bold; }
 
-        button { cursor: pointer; border-radius: 5px; font-weight: bold; border: none; }
-        #send-btn { padding: 12px 20px; background: #2ecc71; color: white; }
         .my-name-link { font-weight: bold; text-decoration: underline; cursor: pointer; }
-        #pre-login-info { margin-bottom: 15px; font-size: 14px; color: #666; font-weight: bold; background: #f9f9f9; padding: 10px; border-radius: 8px; }
-
-        .footer-links { font-size: 11px; color: #888; margin-top: 15px; }
-        .footer-links a { color: #3498db; text-decoration: underline; margin: 0 5px; }
         
         @keyframes flash-white { 0% { background-color: #fff; } 50% { background-color: #ccc; } 100% { background-color: #fff; } }
         .flash-active { animation: flash-white 0.3s ease-in-out 3; }
     </style>
 </head>
-<body id="main-body">
+<body>
     <audio id="sound-in" src="./sounds/in.mp3"></audio>
-    <audio id="sound-out" src="./sounds/out.mp3"></audio>
 
     <div id="login-screen">
-        <h1>調教部屋 入室</h1>
-        <div id="pre-login-info">現在の入室者: 接続中...</div>
-        <input type="text" id="login-name" placeholder="名前を入力"><br><br>
-        <div style="display:flex; align-items:center; justify-content:center; gap:10px;">
-            <input type="color" id="user-color" value="#000000" style="width:50px; height:30px;"> 
-            <span>文字色</span>
-        </div><br>
-        <button id="enter-btn" onclick="enterChat()" style="width: 80%; padding: 15px; background: #333; color: white;">入室する</button>
-        <div class="footer-links">
-            <a href="https://sites.google.com/view/osiokimesu/" target="_blank">ルール</a> | 
-            <span>音：<a href="https://otologic.jp" target="_blank">OtoLogic</a></span>
+        <h2>調教部屋 入室</h2>
+        <div id="pre-login-info" style="font-size:12px; margin-bottom:10px;">接続中...</div>
+        <input type="text" id="login-name" placeholder="名前を入力">
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom: 20px;">
+            <input type="color" id="user-color" value="#000000" style="width:40px; height:30px;"> 
+            <span style="font-size:12px;">文字色</span>
         </div>
-        <p id="loading-msg" style="display:none; color:#888;">接続中...</p>
+        <button id="enter-btn" style="width: 80%; padding: 12px; background: #333; color: white; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">入室する</button>
     </div>
 
     <div id="chat-screen">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 5px;">
-            <div id="user-list-display" style="font-size: 12px; color: #666;">参加者: 取得中...</div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="font-size: 11px;">
-                    <a href="https://sites.google.com/view/osiokimesu/" target="_blank" style="color: #3498db; text-decoration: underline;">ルール</a>
-                    <span style="color:#ccc; margin:0 4px;">|</span>
-                    <span style="color:#aaa;">音：OtoLogic</span>
+        <div class="header-area">
+            <div class="info-bar">
+                <div id="user-list-display">参加者: 取得中...</div>
+                <div style="display:flex; gap:5px; align-items:center;">
+                    <select id="notify-mode" style="font-size: 10px;">
+                        <option value="none">通知なし</option>
+                        <option value="sound" selected>音</option>
+                        <option value="flash">フラッシュ</option>
+                    </select>
+                    <button id="leave-btn" style="background: #e74c3c; color: white; padding: 2px 8px; font-size: 10px; border-radius:3px; border:none; cursor:pointer;">退室</button>
                 </div>
-                <select id="notify-mode" style="font-size: 11px; padding: 2px;">
-                    <option value="none">通知なし</option>
-                    <option value="sound" selected>音を鳴らす</option>
-                    <option value="flash">フラッシュ</option>
-                </select>
-                <button onclick="leaveChat()" style="background: #e74c3c; color: white; padding: 5px 12px; font-size: 12px;">退室</button>
+            </div>
+            <div class="input-area">
+                <select id="to-user"></select>
+                <input type="text" id="message" placeholder="メッセージ / 罰 / 2d6">
+                <button id="send-btn">送信</button>
             </div>
         </div>
         <div id="chat-log"></div>
-        <div class="input-area">
-            <select id="to-user"></select>
-            <input type="text" id="message" placeholder="メッセージ / 「罰」 / 2d6+3">
-            <button id="send-btn" onclick="handleSend()">送信</button>
-        </div>
         <input type="color" id="user-color-dynamic" style="display:none;">
     </div>
 
@@ -92,13 +86,24 @@
         let mainChannel; let isEntered = false; let isPendingEntry = false;
         let myIP = ""; 
 
-        const audioIn = document.getElementById('sound-in'); const audioOut = document.getElementById('sound-out');
+        const audioIn = document.getElementById('sound-in');
 
         window.onload = () => {
+            // 保存情報の復元
             document.getElementById('login-name').value = localStorage.getItem('chat_user_name') || "";
-            const savedColor = localStorage.getItem('chat_user_color') || "#000000";
-            document.getElementById('user-color').value = savedColor;
-            document.getElementById('user-color-dynamic').value = savedColor;
+            myColor = localStorage.getItem('chat_user_color') || "#000000";
+            document.getElementById('user-color').value = myColor;
+            document.getElementById('user-color-dynamic').value = myColor;
+
+            // イベントリスナー設定
+            document.getElementById('enter-btn').onclick = enterChat;
+            document.getElementById('send-btn').onclick = handleSend;
+            document.getElementById('leave-btn').onclick = leaveChat;
+            document.getElementById('user-color-dynamic').onchange = (e) => {
+                myColor = e.target.value;
+                localStorage.setItem('chat_user_color', myColor);
+            };
+            
             setupChannel();
         };
 
@@ -112,16 +117,10 @@
                     if (isPendingEntry && !isEntered) { completeEntry(); }
                 })
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-                    if (isEntered) {
-                        displayMessage(payload.new);
-                        const log = document.getElementById('chat-log');
-                        if (log.children.length > 100) { log.removeChild(log.firstChild); }
-                    }
+                    if (isEntered) { displayMessage(payload.new, true); }
                 })
-                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
-                    if (isEntered && payload.old && !payload.old.id) {
-                         document.getElementById('chat-log').innerHTML = "";
-                    }
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, () => {
+                    if (isEntered) { document.getElementById('chat-log').innerHTML = ""; }
                 })
                 .subscribe();
         }
@@ -130,7 +129,6 @@
             const nameInput = document.getElementById('login-name').value.trim();
             if (!nameInput) return alert("名前を入力してください");
             document.getElementById('enter-btn').disabled = true;
-            document.getElementById('loading-msg').style.display = 'block';
 
             try {
                 const res = await fetch('https://api.ipify.org?format=json');
@@ -157,7 +155,6 @@
             const otherUsersCount = Object.keys(state).length - 1; 
 
             if (otherUsersCount <= 0) {
-                // 自分一人ならサイレントでログ消去
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
             } else {
@@ -165,16 +162,20 @@
             }
 
             await sendSystemMessage(`${myName}さんが入室しました`);
-            document.getElementById('message').addEventListener('keypress', e => { if (e.key === 'Enter') handleSend(); });
+            document.getElementById('message').onkeypress = e => { if (e.key === 'Enter') handleSend(); };
             setInterval(checkInactivity, 60000);
         }
 
         async function loadPastMessages() {
-            const { data } = await client.from('messages').select('*').is('to_user', null).order('id', { ascending: false }).limit(100);
+            const { data } = await client.from('messages')
+                .select('*')
+                .or('to_user.is.null,username.eq.PUNISHMENT,content.ilike.%🎲%,username.eq.SYSTEM')
+                .order('id', { ascending: false })
+                .limit(50);
+            
             const log = document.getElementById('chat-log');
             log.innerHTML = "";
-            if (data) { data.reverse().forEach(msg => { displayMessage(msg); }); }
-            log.scrollTop = log.scrollHeight;
+            if (data) { data.forEach(msg => { displayMessage(msg, false); }); }
         }
 
         async function handleSend() {
@@ -189,101 +190,111 @@
             let finalToUser = toUser || null;
 
             if (content === "オールクリア") {
-                await client.from('messages').delete().neq('id', 0);
-                await sendSystemMessage(`【システム】${myName}さんがログを全消去しました`);
+                if(confirm("ログを全消去しますか？")) {
+                    await client.from('messages').delete().neq('id', 0);
+                }
                 messageEl.value = ''; return;
             }
 
+            // ダイス処理
             const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
             if (diceMatch) {
-                const num = parseInt(diceMatch[1]);
-                const sides = parseInt(diceMatch[2]);
+                const num = Math.min(parseInt(diceMatch[1]), 100);
+                const sides = Math.min(parseInt(diceMatch[2]), 100);
                 const plus = parseInt(diceMatch[3] || 0);
-                if (num > 100 || sides > 100) { alert("100以下で指定してください"); return; }
                 let rolls = []; let total = 0;
                 for(let i=0; i<num; i++) {
                     const r = Math.floor(Math.random() * sides) + 1;
                     rolls.push(r); total += r;
                 }
                 total += plus;
-                finalContent = `🎲 ダイス：(${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
+                finalContent = `🎲 (${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
             }
 
+            // 罰処理
             if (content === "罰") {
                 const { data } = await client.from('punishments').select('*');
                 if (data && data.length > 0) {
                     const p = data[Math.floor(Math.random() * data.length)];
                     finalUsername = "PUNISHMENT";
-                    finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}(2回目以降：${p.second_time})/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込マゾ：${p.maki_slave}`;
+                    finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}/2回目：${p.second_time}/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込：${p.maki_slave}`;
                 }
             }
 
-            await client.from('messages').insert([{ 
-                username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP
-            }]);
+            await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP }]);
             messageEl.value = '';
+            messageEl.focus();
         }
 
-        function displayMessage(msg) {
+        function displayMessage(msg, isNew = true) {
             const log = document.getElementById('chat-log');
             const isIM = msg.to_user === "@ALL_PRIVATE";
             if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) return;
             
             const div = document.createElement('div');
             const d = msg.created_at ? new Date(msg.created_at) : new Date();
-            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + 
-                            String(d.getMinutes()).padStart(2, '0') + ":" + 
-                            String(d.getSeconds()).padStart(2, '0');
+            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + String(d.getMinutes()).padStart(2, '0');
 
-            const mode = document.getElementById('notify-mode').value;
-            
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
-                div.innerHTML = `<span class="msg-time">${timeStr}</span><span>${msg.content}</span>`;
-                if (msg.content.includes("入室しました") && !msg.content.includes(myName)) {
-                    if (mode === 'sound') { audioIn.currentTime = 0; audioIn.play().catch(e=>{}); }
-                    if (mode === 'flash') { log.classList.remove('flash-active'); void log.offsetWidth; log.classList.add('flash-active'); }
+                div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
+                if (isNew && msg.content.includes("入室しました") && !msg.content.includes(myName)) {
+                    playNotify(log);
                 }
-                if (msg.content.includes("退室しました")) { if (mode === 'sound') { audioOut.currentTime = 0; audioOut.play().catch(e=>{}); } }
             } else if (msg.username === 'PUNISHMENT') {
                 div.className = 'msg punishment-msg';
-                div.innerHTML = `<span class="msg-time">${timeStr}</span><div>${msg.content}</div>`;
+                div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
             } else {
                 div.className = 'msg';
                 if (msg.to_user) div.classList.add('private-msg');
                 let toLabel = isIM ? `<span style="color:red;">[全員へ私信]</span> ` : (msg.to_user ? `<span style="color:red;">[${msg.to_user}へ]</span> ` : "");
-                div.innerHTML = `<span class="msg-time">${timeStr}</span><div><strong style="color:${msg.color}">${msg.username}</strong>: ${toLabel}${msg.content}</div>`;
+                div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content"><strong style="color:${msg.color}">${msg.username}</strong>: ${toLabel}${msg.content}</div>`;
             }
-            log.appendChild(div);
-            log.scrollTop = log.scrollHeight;
+
+            isNew ? log.prepend(div) : log.appendChild(div);
+        }
+
+        function playNotify(logEl) {
+            const mode = document.getElementById('notify-mode').value;
+            if (mode === 'sound') audioIn.play().catch(()=>{});
+            if (mode === 'flash') {
+                logEl.classList.add('flash-active');
+                setTimeout(() => logEl.classList.remove('flash-active'), 1000);
+            }
         }
 
         function updateUserList(state) {
             const select = document.getElementById('to-user');
             const display = document.getElementById('user-list-display');
-            const users = Object.values(state).map(p => p[0]).filter(u => u.user_name).sort((a,b) => new Date(a.online_at) - new Date(b.online_at));
+            const users = Object.values(state).map(p => p[0]).filter(u => u.user_name);
             const names = Array.from(new Set(users.map(u => u.user_name)));
 
-            display.innerHTML = `参加者(${names.length}名): `;
-            names.forEach((n, index) => {
+            display.innerHTML = `参加者(${names.length}): `;
+            names.forEach((n, idx) => {
                 const span = document.createElement('span');
                 if (n === myName) {
                     span.className = 'my-name-link'; span.style.color = myColor; span.textContent = n;
                     span.onclick = () => document.getElementById('user-color-dynamic').click();
                 } else { span.textContent = n; }
                 display.appendChild(span);
-                if (index < names.length - 1) display.appendChild(document.createTextNode(', '));
+                if (idx < names.length - 1) display.appendChild(document.createTextNode(', '));
             });
 
             const currentTo = select.value;
             select.innerHTML = '<option value="">全員</option>';
             names.forEach(n => { if (n !== myName) { const o = document.createElement('option'); o.value = n; o.textContent = n; select.appendChild(o); } });
-            const im = document.createElement('option'); im.value = "@ALL_PRIVATE"; im.textContent = "IM"; select.appendChild(im);
+            select.innerHTML += '<option value="@ALL_PRIVATE">IM</option>';
             select.value = currentTo;
         }
 
         async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP }]); }
-        async function leaveChat() { await sendSystemMessage(`${myName}さんが退室しました`); setTimeout(() => location.reload(), 300); }
+        
+        async function leaveChat() { 
+            if(!confirm("退室しますか？")) return;
+            await sendSystemMessage(`${myName}さんが退室しました`); 
+            setTimeout(() => location.reload(), 300); 
+        }
+
         function checkInactivity() { if (Date.now() - lastActivity > 20 * 60 * 1000) leaveChat(); }
     </script>
 </body>
