@@ -6,24 +6,48 @@
     <title>調教部屋</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; background: #f0f0f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        /* 画面全体を固定して、中身だけをスクロールさせる設定 */
+        body { 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            margin: 0; 
+            background: #f0f0f0; 
+            height: 100vh; 
+            height: 100dvh; /* スマホ用 */
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden; 
+        }
         
-        /* ログイン画面 */
         #login-screen { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: auto; width: 90%; max-width: 450px; text-align: center; }
         #login-screen input[type="text"] { width: 80%; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; }
 
-        /* チャット画面 */
         #chat-screen { display: none; height: 100%; flex-direction: column; background: #fff; }
-        .header-area { background: #f9f9f9; border-bottom: 1px solid #ddd; padding: 8px; z-index: 100; }
+        
+        /* 【重要】ヘッダーを画面上部に固定 */
+        .header-area { 
+            background: #f9f9f9; 
+            border-bottom: 1px solid #ddd; 
+            padding: 8px; 
+            flex-shrink: 0; /* ログに押しつぶされないように固定 */
+            z-index: 100;
+        }
         .input-area { display: flex; gap: 5px; align-items: center; padding: 5px 0; }
         #message { flex-grow: 1; padding: 10px; font-size: 16px; border: 1px solid #ddd; border-radius: 5px; min-width: 0; }
         #to-user { padding: 9px 2px; border: 1px solid #ddd; border-radius: 5px; background: #fff; font-size: 12px; }
-        #send-btn { padding: 10px 15px; background: #2ecc71; color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        #send-btn { padding: 10px 15px; background: #2ecc71; color: white; border: none; border-radius: 5px; font-weight: bold; }
 
         .info-bar { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #666; padding: 2px 5px; border-bottom: 1px solid #eee; }
 
-        /* ログエリア */
-        #chat-log { flex-grow: 1; overflow-y: scroll; display: flex; flex-direction: column; padding: 5px; background: #fff; }
+        /* 【重要】ログエリアのみをスクロール可能にする */
+        #chat-log { 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            display: flex; 
+            flex-direction: column; 
+            padding: 5px; 
+            background: #fff;
+            -webkit-overflow-scrolling: touch; /* iOSでスルスル動くように */
+        }
         
         .msg, .system-msg { display: flex; align-items: flex-start; padding: 6px 4px; border-bottom: 1px solid #f5f5f5; font-size: 14px; line-height: 1.4; width: 100%; box-sizing: border-box; }
         .msg-time { color: #aaa; font-size: 10px; width: 45px; min-width: 45px; margin-top: 2px; }
@@ -35,7 +59,6 @@
         .punishment-type { color: #ff0000; font-weight: bold; }
 
         .my-name-link { font-weight: bold; text-decoration: underline; cursor: pointer; }
-        
         @keyframes flash-white { 0% { background-color: #fff; } 50% { background-color: #ccc; } 100% { background-color: #fff; } }
         .flash-active { animation: flash-white 0.3s ease-in-out 3; }
     </style>
@@ -51,7 +74,7 @@
             <input type="color" id="user-color" value="#000000" style="width:40px; height:30px;"> 
             <span style="font-size:12px;">文字色</span>
         </div>
-        <button id="enter-btn" style="width: 80%; padding: 12px; background: #333; color: white; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">入室する</button>
+        <button id="enter-btn" style="width: 80%; padding: 12px; background: #333; color: white; border-radius:5px; border:none; font-weight:bold;">入室する</button>
     </div>
 
     <div id="chat-screen">
@@ -64,7 +87,7 @@
                         <option value="sound" selected>音</option>
                         <option value="flash">フラッシュ</option>
                     </select>
-                    <button id="leave-btn" style="background: #e74c3c; color: white; padding: 2px 8px; font-size: 10px; border-radius:3px; border:none; cursor:pointer;">退室</button>
+                    <button id="leave-btn" style="background: #e74c3c; color: white; padding: 2px 8px; font-size: 10px; border-radius:3px; border:none;">退室</button>
                 </div>
             </div>
             <div class="input-area">
@@ -73,11 +96,13 @@
                 <button id="send-btn">送信</button>
             </div>
         </div>
+
         <div id="chat-log"></div>
         <input type="color" id="user-color-dynamic" style="display:none;">
     </div>
 
     <script>
+        // JS部分は以前のものをそのまま使用してください（leaveChatの確認ダイアログ付き）
         const SUPABASE_URL = 'https://epintmtwdilimfwehyvz.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_CLHyNE7FTMfV4oTHJwVj0g_YGkoe_la';
         const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -89,13 +114,10 @@
         const audioIn = document.getElementById('sound-in');
 
         window.onload = () => {
-            // 保存情報の復元
             document.getElementById('login-name').value = localStorage.getItem('chat_user_name') || "";
             myColor = localStorage.getItem('chat_user_color') || "#000000";
             document.getElementById('user-color').value = myColor;
             document.getElementById('user-color-dynamic').value = myColor;
-
-            // イベントリスナー設定
             document.getElementById('enter-btn').onclick = enterChat;
             document.getElementById('send-btn').onclick = handleSend;
             document.getElementById('leave-btn').onclick = leaveChat;
@@ -103,7 +125,6 @@
                 myColor = e.target.value;
                 localStorage.setItem('chat_user_color', myColor);
             };
-            
             setupChannel();
         };
 
@@ -129,18 +150,15 @@
             const nameInput = document.getElementById('login-name').value.trim();
             if (!nameInput) return alert("名前を入力してください");
             document.getElementById('enter-btn').disabled = true;
-
             try {
                 const res = await fetch('https://api.ipify.org?format=json');
                 const data = await res.json();
                 myIP = data.ip;
             } catch (e) { myIP = "unknown"; }
-
             myName = nameInput; 
             myColor = document.getElementById('user-color').value;
             localStorage.setItem('chat_user_name', myName); 
             localStorage.setItem('chat_user_color', myColor);
-
             isPendingEntry = true;
             await mainChannel.track({ user_name: myName, online_at: new Date().toISOString() });
             setTimeout(() => { if (!isEntered) completeEntry(); }, 2000);
@@ -150,17 +168,14 @@
             isEntered = true;
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
-            
             const state = mainChannel.presenceState();
             const otherUsersCount = Object.keys(state).length - 1; 
-
             if (otherUsersCount <= 0) {
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
             } else {
                 await loadPastMessages();
             }
-
             await sendSystemMessage(`${myName}さんが入室しました`);
             document.getElementById('message').onkeypress = e => { if (e.key === 'Enter') handleSend(); };
             setInterval(checkInactivity, 60000);
@@ -172,7 +187,6 @@
                 .or('to_user.is.null,username.eq.PUNISHMENT,content.ilike.%🎲%,username.eq.SYSTEM')
                 .order('id', { ascending: false })
                 .limit(50);
-            
             const log = document.getElementById('chat-log');
             log.innerHTML = "";
             if (data) { data.forEach(msg => { displayMessage(msg, false); }); }
@@ -184,19 +198,13 @@
             const toUser = document.getElementById('to-user').value;
             const content = messageEl.value.trim();
             if (!content) return;
-
             let finalContent = content;
             let finalUsername = myName;
             let finalToUser = toUser || null;
-
             if (content === "オールクリア") {
-                if(confirm("ログを全消去しますか？")) {
-                    await client.from('messages').delete().neq('id', 0);
-                }
+                if(confirm("ログを全消去しますか？")) { await client.from('messages').delete().neq('id', 0); }
                 messageEl.value = ''; return;
             }
-
-            // ダイス処理
             const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
             if (diceMatch) {
                 const num = Math.min(parseInt(diceMatch[1]), 100);
@@ -210,8 +218,6 @@
                 total += plus;
                 finalContent = `🎲 (${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
             }
-
-            // 罰処理
             if (content === "罰") {
                 const { data } = await client.from('punishments').select('*');
                 if (data && data.length > 0) {
@@ -220,27 +226,21 @@
                     finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}/2回目：${p.second_time}/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込：${p.maki_slave}`;
                 }
             }
-
             await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP }]);
             messageEl.value = '';
-            messageEl.focus();
         }
 
         function displayMessage(msg, isNew = true) {
             const log = document.getElementById('chat-log');
             const isIM = msg.to_user === "@ALL_PRIVATE";
             if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) return;
-            
             const div = document.createElement('div');
             const d = msg.created_at ? new Date(msg.created_at) : new Date();
             const timeStr = String(d.getHours()).padStart(2, '0') + ":" + String(d.getMinutes()).padStart(2, '0');
-
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
                 div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
-                if (isNew && msg.content.includes("入室しました") && !msg.content.includes(myName)) {
-                    playNotify(log);
-                }
+                if (isNew && msg.content.includes("入室しました") && !msg.content.includes(myName)) { playNotify(log); }
             } else if (msg.username === 'PUNISHMENT') {
                 div.className = 'msg punishment-msg';
                 div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
@@ -250,7 +250,6 @@
                 let toLabel = isIM ? `<span style="color:red;">[全員へ私信]</span> ` : (msg.to_user ? `<span style="color:red;">[${msg.to_user}へ]</span> ` : "");
                 div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content"><strong style="color:${msg.color}">${msg.username}</strong>: ${toLabel}${msg.content}</div>`;
             }
-
             isNew ? log.prepend(div) : log.appendChild(div);
         }
 
@@ -268,7 +267,6 @@
             const display = document.getElementById('user-list-display');
             const users = Object.values(state).map(p => p[0]).filter(u => u.user_name);
             const names = Array.from(new Set(users.map(u => u.user_name)));
-
             display.innerHTML = `参加者(${names.length}): `;
             names.forEach((n, idx) => {
                 const span = document.createElement('span');
@@ -279,7 +277,6 @@
                 display.appendChild(span);
                 if (idx < names.length - 1) display.appendChild(document.createTextNode(', '));
             });
-
             const currentTo = select.value;
             select.innerHTML = '<option value="">全員</option>';
             names.forEach(n => { if (n !== myName) { const o = document.createElement('option'); o.value = n; o.textContent = n; select.appendChild(o); } });
@@ -288,13 +285,11 @@
         }
 
         async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP }]); }
-        
         async function leaveChat() { 
             if(!confirm("退室しますか？")) return;
             await sendSystemMessage(`${myName}さんが退室しました`); 
             setTimeout(() => location.reload(), 300); 
         }
-
         function checkInactivity() { if (Date.now() - lastActivity > 20 * 60 * 1000) leaveChat(); }
     </script>
 </body>
