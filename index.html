@@ -10,44 +10,74 @@
         #login-screen, #chat-screen { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: auto; box-sizing: border-box; }
         #login-screen { text-align: center; width: 100%; max-width: 450px; }
         #login-screen input[type="text"] { width: 80%; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 5px; }
-        #chat-screen { display: none; width: 100%; max-width: 900px; height: 100%; flex-direction: column; }
+        #chat-screen { display: none; width: 100%; max-width: 900px; height: 100%; flex-direction: column; position: relative; }
         #chat-log { border: 1px solid #ddd; flex-grow: 1; overflow-y: scroll; padding: 15px; background: #fff; margin-bottom: 10px; border-radius: 5px; font-size: 14px; overflow-wrap: anywhere; word-break: normal; line-height: 1.5; }
         .input-area { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
         #message { flex-grow: 1; padding: 12px; font-size: 16px; border-radius: 5px; border: 1px solid #ddd; min-width: 0; }
         #to-user { padding: 11px 5px; border-radius: 5px; border: 1px solid #ddd; background: #fff; }
-        .msg { display: flex; align-items: flex-start; margin: 8px 0; border-bottom: 1px solid #f0f0f0; padding: 5px 0; text-align: left; }
-        .msg-time { color: #aaa; font-size: 12px; white-space: nowrap; width: 65px; min-width: 65px; display: inline-block; }
-        .system-msg { color: #888; font-size: 14px; text-align: left; margin: 10px 0; background: #f9f9f9; padding: 6px 8px; border-radius: 5px; display: flex; }
-        .private-msg { background-color: #fff9f9; border-left: 4px solid #ff7878; padding-left: 8px; margin-left: -4px; }
+        
+        .msg, .system-msg { display: flex; align-items: flex-start; margin: 4px 0; padding: 4px 8px; text-align: left; border-bottom: 1px solid #f0f0f0; box-sizing: border-box; width: 100%; }
+        .msg-time { color: #aaa; font-size: 12px; white-space: nowrap; width: 65px; min-width: 65px; display: inline-block; margin-right: 10px; box-sizing: border-box; }
+        .system-msg { color: #888; font-size: 14px; }
+        .private-msg { background-color: #fff9f9; }
+        
+        /* 罰コマンド専用スタイル（赤線なし） */
+        .punishment-msg { background-color: #e0e0e0 !important; padding: 10px !important; border: none !important; }
+        .punishment-type { color: #ff0000; font-weight: bold; }
+
         button { cursor: pointer; border-radius: 5px; font-weight: bold; border: none; }
         #send-btn { padding: 12px 20px; background: #2ecc71; color: white; }
         .my-name-link { font-weight: bold; text-decoration: underline; cursor: pointer; }
+        #pre-login-info { margin-bottom: 15px; font-size: 14px; color: #666; font-weight: bold; background: #f9f9f9; padding: 10px; border-radius: 8px; }
+
+        .footer-links { font-size: 11px; color: #888; margin-top: 15px; }
+        .footer-links a { color: #3498db; text-decoration: underline; margin: 0 5px; }
+        
+        @keyframes flash-white { 0% { background-color: #fff; } 50% { background-color: #ccc; } 100% { background-color: #fff; } }
+        .flash-active { animation: flash-white 0.3s ease-in-out 3; }
     </style>
 </head>
-<body>
+<body id="main-body">
     <audio id="sound-in" src="./sounds/in.mp3"></audio>
     <audio id="sound-out" src="./sounds/out.mp3"></audio>
 
     <div id="login-screen">
         <h1>調教部屋 入室</h1>
+        <div id="pre-login-info">現在の入室者: 接続中...</div>
         <input type="text" id="login-name" placeholder="名前を入力"><br><br>
         <div style="display:flex; align-items:center; justify-content:center; gap:10px;">
             <input type="color" id="user-color" value="#000000" style="width:50px; height:30px;"> 
             <span>文字色</span>
         </div><br>
         <button id="enter-btn" onclick="enterChat()" style="width: 80%; padding: 15px; background: #333; color: white;">入室する</button>
+        <div class="footer-links">
+            <a href="https://sites.google.com/view/osiokimesu/" target="_blank">ルール</a> | 
+            <span>音：<a href="https://otologic.jp" target="_blank">OtoLogic</a></span>
+        </div>
         <p id="loading-msg" style="display:none; color:#888;">接続中...</p>
     </div>
 
     <div id="chat-screen">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 5px;">
             <div id="user-list-display" style="font-size: 12px; color: #666;">参加者: 取得中...</div>
-            <button onclick="leaveChat()" style="background: #e74c3c; color: white; padding: 5px 12px; font-size: 12px;">退室</button>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="font-size: 11px;">
+                    <a href="https://sites.google.com/view/osiokimesu/" target="_blank" style="color: #3498db; text-decoration: underline;">ルール</a>
+                    <span style="color:#ccc; margin:0 4px;">|</span>
+                    <span style="color:#aaa;">音：OtoLogic</span>
+                </div>
+                <select id="notify-mode" style="font-size: 11px; padding: 2px;">
+                    <option value="none">通知なし</option>
+                    <option value="sound" selected>音を鳴らす</option>
+                    <option value="flash">フラッシュ</option>
+                </select>
+                <button onclick="leaveChat()" style="background: #e74c3c; color: white; padding: 5px 12px; font-size: 12px;">退室</button>
+            </div>
         </div>
         <div id="chat-log"></div>
         <div class="input-area">
             <select id="to-user"></select>
-            <input type="text" id="message" placeholder="メッセージ / 「罰」">
+            <input type="text" id="message" placeholder="メッセージ / 「罰」 / 2d6+3">
             <button id="send-btn" onclick="handleSend()">送信</button>
         </div>
         <input type="color" id="user-color-dynamic" style="display:none;">
@@ -58,7 +88,10 @@
         const SUPABASE_ANON_KEY = 'sb_publishable_CLHyNE7FTMfV4oTHJwVj0g_YGkoe_la';
         const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        let myName = ""; let myColor = "#000000"; let lastActivity = Date.now(); let mainChannel; let isEntered = false;
+        let myName = ""; let myColor = "#000000"; let lastActivity = Date.now(); 
+        let mainChannel; let isEntered = false; let isPendingEntry = false;
+        let myIP = ""; 
+
         const audioIn = document.getElementById('sound-in'); const audioOut = document.getElementById('sound-out');
 
         window.onload = () => {
@@ -66,68 +99,81 @@
             const savedColor = localStorage.getItem('chat_user_color') || "#000000";
             document.getElementById('user-color').value = savedColor;
             document.getElementById('user-color-dynamic').value = savedColor;
+            setupChannel();
         };
 
-        function getFormattedTime() {
-            const now = new Date();
-            return String(now.getHours()).padStart(2, '0') + ":" + 
-                   String(now.getMinutes()).padStart(2, '0') + ":" + 
-                   String(now.getSeconds()).padStart(2, '0');
+        function setupChannel() {
+            mainChannel = client.channel('room-1');
+            mainChannel
+                .on('presence', { event: 'sync' }, async () => {
+                    const state = mainChannel.presenceState();
+                    document.getElementById('pre-login-info').textContent = `現在の入室者: ${Object.keys(state).length}名`;
+                    updateUserList(state);
+                    if (isPendingEntry && !isEntered) { completeEntry(); }
+                })
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    if (isEntered) {
+                        displayMessage(payload.new);
+                        const log = document.getElementById('chat-log');
+                        if (log.children.length > 100) { log.removeChild(log.firstChild); }
+                    }
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+                    if (isEntered && payload.old && !payload.old.id) {
+                         document.getElementById('chat-log').innerHTML = "";
+                    }
+                })
+                .subscribe();
         }
 
         async function enterChat() {
             const nameInput = document.getElementById('login-name').value.trim();
             if (!nameInput) return alert("名前を入力してください");
-            if(audioIn) audioIn.play().then(() => { audioIn.pause(); audioIn.currentTime = 0; }).catch(e=>console.log(e));
             document.getElementById('enter-btn').disabled = true;
             document.getElementById('loading-msg').style.display = 'block';
-            myName = nameInput; myColor = document.getElementById('user-color').value;
-            localStorage.setItem('chat_user_name', myName); localStorage.setItem('chat_user_color', myColor);
+
+            try {
+                const res = await fetch('https://api.ipify.org?format=json');
+                const data = await res.json();
+                myIP = data.ip;
+            } catch (e) { myIP = "unknown"; }
+
+            myName = nameInput; 
+            myColor = document.getElementById('user-color').value;
+            localStorage.setItem('chat_user_name', myName); 
+            localStorage.setItem('chat_user_color', myColor);
+
+            isPendingEntry = true;
+            await mainChannel.track({ user_name: myName, online_at: new Date().toISOString() });
+            setTimeout(() => { if (!isEntered) completeEntry(); }, 2000);
+        }
+
+        async function completeEntry() {
+            isEntered = true;
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
             
-            mainChannel = client.channel('room-1', { config: { presence: { key: myName } } });
-            mainChannel
-                .on('presence', { event: 'sync' }, async () => {
-                    const state = mainChannel.presenceState();
-                    updateUserList(state);
-                    if (!isEntered) {
-                        isEntered = true; 
-                        setTimeout(async () => {
-                            const latestState = mainChannel.presenceState();
-                            if (Object.keys(latestState).length <= 1) {
-                                await client.from('messages').delete().neq('id', 0);
-                                document.getElementById('chat-log').innerHTML = "";
-                            } else { 
-                                // ★修正：再入室時は「全員宛」のみ読み込むモードを明示
-                                await loadPastMessages(true); 
-                            }
-                        }, 1500);
-                        document.getElementById('login-screen').style.display = 'none';
-                        document.getElementById('chat-screen').style.display = 'flex';
-                        await sendSystemMessage(`${myName}さんが入室しました`);
-                    }
-                })
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => { displayMessage(payload.new); })
-                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, () => { document.getElementById('chat-log').innerHTML = ""; })
-                .subscribe(async (status) => { if (status === 'SUBSCRIBED') await mainChannel.track({ online_at: new Date().toISOString() }); });
-            
+            const state = mainChannel.presenceState();
+            const otherUsersCount = Object.keys(state).length - 1; 
+
+            if (otherUsersCount <= 0) {
+                // 自分一人ならサイレントでログ消去
+                await client.from('messages').delete().neq('id', 0);
+                document.getElementById('chat-log').innerHTML = "";
+            } else {
+                await loadPastMessages();
+            }
+
+            await sendSystemMessage(`${myName}さんが入室しました`);
             document.getElementById('message').addEventListener('keypress', e => { if (e.key === 'Enter') handleSend(); });
             setInterval(checkInactivity, 60000);
         }
 
-        // 引数 skipPrivate が true なら私信を表示しない
-        async function loadPastMessages(skipPrivate = false) {
-            const { data } = await client.from('messages').select('*').order('id', { ascending: true }).limit(50);
+        async function loadPastMessages() {
+            const { data } = await client.from('messages').select('*').is('to_user', null).order('id', { ascending: false }).limit(100);
             const log = document.getElementById('chat-log');
             log.innerHTML = "";
-            if (data) {
-                data.forEach(msg => { 
-                    // 再入室時（skipPrivate=true）は宛先があるものを無視
-                    if (skipPrivate && msg.to_user !== null) return;
-                    
-                    // それ以外（リアルタイム）のフィルタリングは displayMessage に任せる
-                    displayMessage(msg); 
-                });
-            }
+            if (data) { data.reverse().forEach(msg => { displayMessage(msg); }); }
             log.scrollTop = log.scrollHeight;
         }
 
@@ -137,37 +183,71 @@
             const toUser = document.getElementById('to-user').value;
             const content = messageEl.value.trim();
             if (!content) return;
+
+            let finalContent = content;
+            let finalUsername = myName;
+            let finalToUser = toUser || null;
+
             if (content === "オールクリア") {
                 await client.from('messages').delete().neq('id', 0);
                 await sendSystemMessage(`【システム】${myName}さんがログを全消去しました`);
                 messageEl.value = ''; return;
             }
-            let finalContent = content; let finalToUser = toUser || null;
+
+            const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
+            if (diceMatch) {
+                const num = parseInt(diceMatch[1]);
+                const sides = parseInt(diceMatch[2]);
+                const plus = parseInt(diceMatch[3] || 0);
+                if (num > 100 || sides > 100) { alert("100以下で指定してください"); return; }
+                let rolls = []; let total = 0;
+                for(let i=0; i<num; i++) {
+                    const r = Math.floor(Math.random() * sides) + 1;
+                    rolls.push(r); total += r;
+                }
+                total += plus;
+                finalContent = `🎲 ダイス：(${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
+            }
+
             if (content === "罰") {
                 const { data } = await client.from('punishments').select('*');
                 if (data && data.length > 0) {
                     const p = data[Math.floor(Math.random() * data.length)];
-                    finalContent = `【罰発動】 内容：${p.first_time} (パス：${p.pass_status})`;
+                    finalUsername = "PUNISHMENT";
+                    finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}(2回目以降：${p.second_time})/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込マゾ：${p.maki_slave}`;
                 }
             }
-            await client.from('messages').insert([{ username: myName, content: finalContent, color: myColor, to_user: finalToUser }]);
+
+            await client.from('messages').insert([{ 
+                username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP
+            }]);
             messageEl.value = '';
         }
 
         function displayMessage(msg) {
             const log = document.getElementById('chat-log');
             const isIM = msg.to_user === "@ALL_PRIVATE";
-            // 自分宛、自分発、またはIM、または全員宛(null)以外は表示しない
             if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) return;
             
             const div = document.createElement('div');
-            const timeStr = getFormattedTime();
+            const d = msg.created_at ? new Date(msg.created_at) : new Date();
+            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + 
+                            String(d.getMinutes()).padStart(2, '0') + ":" + 
+                            String(d.getSeconds()).padStart(2, '0');
+
+            const mode = document.getElementById('notify-mode').value;
             
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
                 div.innerHTML = `<span class="msg-time">${timeStr}</span><span>${msg.content}</span>`;
-                if (msg.content.includes("入室しました") && !msg.content.includes(myName)) { audioIn.currentTime = 0; audioIn.play().catch(e => {}); }
-                if (msg.content.includes("退室しました")) { audioOut.currentTime = 0; audioOut.play().catch(e => {}); }
+                if (msg.content.includes("入室しました") && !msg.content.includes(myName)) {
+                    if (mode === 'sound') { audioIn.currentTime = 0; audioIn.play().catch(e=>{}); }
+                    if (mode === 'flash') { log.classList.remove('flash-active'); void log.offsetWidth; log.classList.add('flash-active'); }
+                }
+                if (msg.content.includes("退室しました")) { if (mode === 'sound') { audioOut.currentTime = 0; audioOut.play().catch(e=>{}); } }
+            } else if (msg.username === 'PUNISHMENT') {
+                div.className = 'msg punishment-msg';
+                div.innerHTML = `<span class="msg-time">${timeStr}</span><div>${msg.content}</div>`;
             } else {
                 div.className = 'msg';
                 if (msg.to_user) div.classList.add('private-msg');
@@ -181,7 +261,9 @@
         function updateUserList(state) {
             const select = document.getElementById('to-user');
             const display = document.getElementById('user-list-display');
-            const names = Object.keys(state).sort();
+            const users = Object.values(state).map(p => p[0]).filter(u => u.user_name).sort((a,b) => new Date(a.online_at) - new Date(b.online_at));
+            const names = Array.from(new Set(users.map(u => u.user_name)));
+
             display.innerHTML = `参加者(${names.length}名): `;
             names.forEach((n, index) => {
                 const span = document.createElement('span');
@@ -192,6 +274,7 @@
                 display.appendChild(span);
                 if (index < names.length - 1) display.appendChild(document.createTextNode(', '));
             });
+
             const currentTo = select.value;
             select.innerHTML = '<option value="">全員</option>';
             names.forEach(n => { if (n !== myName) { const o = document.createElement('option'); o.value = n; o.textContent = n; select.appendChild(o); } });
@@ -199,9 +282,9 @@
             select.value = currentTo;
         }
 
-        async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888' }]); }
-        async function leaveChat() { await sendSystemMessage(`${myName}さんが退室しました`); setTimeout(() => { location.reload(); }, 300); }
-        function checkInactivity() { if (Date.now() - lastActivity > 20 * 60 * 1000) { alert("自動退室します"); leaveChat(); } }
+        async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP }]); }
+        async function leaveChat() { await sendSystemMessage(`${myName}さんが退室しました`); setTimeout(() => location.reload(), 300); }
+        function checkInactivity() { if (Date.now() - lastActivity > 20 * 60 * 1000) leaveChat(); }
     </script>
 </body>
 </html>
