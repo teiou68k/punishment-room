@@ -82,24 +82,37 @@
         const PROD_KEY = 'sb_publishable_CLHyNE7FTMfV4oTHJwVj0g_YGkoe_la';
         const DEV_URL = 'https://nvsswogjjongploglhnh.supabase.co';
         const DEV_KEY = 'sb_publishable_plfAfUuEJXQyifeeGoMzsg_jSJl-XCJ';
-        const SUPABASE_URL = isLocal ? DEV_URL : PROD_URL;
-        const SUPABASE_ANON_KEY = isLocal ? DEV_KEY : PROD_KEY;
-        const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const client = supabase.createClient(isLocal ? DEV_URL : PROD_URL, isLocal ? DEV_KEY : PROD_KEY);
 
         let myName = ""; let myColor = "#000000"; let lastActivity = Date.now(); 
         let mainChannel; let isEntered = false; let isPendingEntry = false;
         let myIP = ""; 
+        const myUA = navigator.userAgent;
 
         const audioIn = document.getElementById('sound-in');
         const audioOut = document.getElementById('sound-out');
+
+        // IPの第3オクテットを伏せ字にする
+        function maskIP(ip) {
+            if (!ip || ip === "unknown") return "unknown";
+            const parts = ip.split('.');
+            return parts.length === 4 ? `${parts[0]}.${parts[1]}.***.${parts[3]}` : ip;
+        }
+
+        // UAからOS/Browserを簡易抽出
+        function parseUA(ua) {
+            let os = "OS不明"; let br = "Browser不明";
+            if (ua.includes("Win")) os = "Windows"; else if (ua.includes("Android")) os = "Android"; else if (ua.includes("iPhone") || ua.includes("iPad")) os = "iOS"; else if (ua.includes("Mac")) os = "Mac";
+            if (ua.includes("Edge") || ua.includes("Edg")) br = "Edge"; else if (ua.includes("Chrome")) br = "Chrome"; else if (ua.includes("Safari")) br = "Safari"; else if (ua.includes("Firefox")) br = "Firefox";
+            return `${os} / ${br}`;
+        }
 
         window.onload = () => {
             document.getElementById('login-name').value = localStorage.getItem('chat_user_name') || "";
             myColor = localStorage.getItem('chat_user_color') || "#000000";
             document.getElementById('user-color').value = myColor;
             document.getElementById('user-color-dynamic').value = myColor;
-            const savedNotify = localStorage.getItem('chat_notify_mode') || "sound";
-            document.getElementById('notify-mode').value = savedNotify;
+            document.getElementById('notify-mode').value = localStorage.getItem('chat_notify_mode') || "sound";
 
             document.getElementById('enter-btn').onclick = enterChat;
             document.getElementById('send-btn').onclick = handleSend;
@@ -108,8 +121,7 @@
             document.getElementById('user-color-dynamic').onchange = (e) => {
                 myColor = e.target.value;
                 localStorage.setItem('chat_user_color', myColor);
-                const myLink = document.querySelector('.my-name-link');
-                if(myLink) myLink.style.color = myColor;
+                if(document.querySelector('.my-name-link')) document.querySelector('.my-name-link').style.color = myColor;
             };
             setupChannel();
         };
@@ -153,7 +165,11 @@
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
             } else { await loadPastMessages(); }
-            await sendSystemMessage(`${myName}さんが入室しました`);
+
+            // 入室メッセージに環境情報を付与
+            const envDisplay = `(${parseUA(myUA)} / ${maskIP(myIP)})`;
+            await sendSystemMessage(`${myName}さんが入室しました${envDisplay}`);
+            
             document.getElementById('message').onkeypress = e => { if (e.key === 'Enter') handleSend(); };
             setInterval(checkInactivity, 60000);
         }
@@ -194,7 +210,8 @@
                     }
                 }
             }
-            await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP }]);
+            // user_agentも送信
+            await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP, user_agent: myUA }]);
             messageEl.value = '';
         }
 
@@ -209,7 +226,6 @@
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
                 div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
-                // 入退室検知
                 if (isNew && !msg.content.includes(myName)) {
                     if (msg.content.includes("入室しました")) playNotify(log, 'in');
                     if (msg.content.includes("退室しました")) playNotify(log, 'out');
@@ -226,7 +242,6 @@
             isNew ? log.prepend(div) : log.appendChild(div);
         }
 
-        // 通知処理（type引数で音を出し分ける）
         function playNotify(logEl, type) {
             const mode = document.getElementById('notify-mode').value;
             if (mode === 'sound') {
@@ -256,7 +271,8 @@
             select.innerHTML += '<option value="@ALL_PRIVATE">IM</option>'; select.value = currentTo;
         }
 
-        async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP }]); }
+        async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP, user_agent: myUA }]); }
+        
         async function leaveChat(isAuto = false) { 
             if(!isAuto && !confirm("退室しますか？")) return;
             await sendSystemMessage(`${myName}さんが退室しました${isAuto ? '（タイムアウト）' : ''}`); 
