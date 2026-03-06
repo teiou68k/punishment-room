@@ -96,10 +96,21 @@
         const PROD_KEY = 'sb_publishable_CLHyNE7FTMfV4oTHJwVj0g_YGkoe_la';
         const DEV_URL = 'https://nvsswogjjongploglhnh.supabase.co';
         const DEV_KEY = 'sb_publishable_plfAfUuEJXQyifeeGoMzsg_jSJl-XCJ';
-        const client = supabase.createClient(isLocal ? DEV_URL : PROD_URL, isLocal ? DEV_KEY : PROD_KEY);
+        
+        let targetUrl = PROD_URL;
+        let targetKey = PROD_KEY;
+        if (isLocal) {
+            targetUrl = DEV_URL;
+            targetKey = DEV_KEY;
+        }
+        const client = supabase.createClient(targetUrl, targetKey);
 
-        let myName = ""; let myColor = "#000000"; let lastActivity = Date.now(); 
-        let mainChannel; let isEntered = false; let isPendingEntry = false;
+        let myName = ""; 
+        let myColor = "#000000"; 
+        let lastActivity = Date.now(); 
+        let mainChannel; 
+        let isEntered = false; 
+        let isPendingEntry = false;
         let myIP = ""; 
         const myUA = navigator.userAgent;
 
@@ -107,33 +118,63 @@
         const audioOut = document.getElementById('sound-out');
 
         function maskIP(ip) {
-            if (!ip || ip === "unknown") return "unknown";
+            if (!ip || ip === "unknown") {
+                return "unknown";
+            }
             const parts = ip.split('.');
-            return parts.length === 4 ? `${parts[0]}.${parts[1]}.***.${parts[3]}` : ip;
+            if (parts.length === 4) {
+                return parts[0] + "." + parts[1] + ".***." + parts[3];
+            }
+            return ip;
         }
 
         function parseUA(ua) {
-            let os = "OS不明"; let br = "Browser不明";
-            if (ua.includes("Win")) os = "Windows"; else if (ua.includes("Android")) os = "Android"; else if (ua.includes("iPhone") || ua.includes("iPad")) os = "iOS"; else if (ua.includes("Mac")) os = "Mac";
-            if (ua.includes("Edge") || ua.includes("Edg")) br = "Edge"; else if (ua.includes("Chrome")) br = "Chrome"; else if (ua.includes("Safari")) br = "Safari"; else if (ua.includes("Firefox")) br = "Firefox";
-            return `${os} / ${br}`;
+            let os = "OS不明"; 
+            let br = "Browser不明";
+            if (ua.includes("Win")) { os = "Windows"; } 
+            else if (ua.includes("Android")) { os = "Android"; } 
+            else if (ua.includes("iPhone") || ua.includes("iPad")) { os = "iOS"; } 
+            else if (ua.includes("Mac")) { os = "Mac"; }
+
+            if (ua.includes("Edge") || ua.includes("Edg")) { br = "Edge"; } 
+            else if (ua.includes("Chrome")) { br = "Chrome"; } 
+            else if (ua.includes("Safari")) { br = "Safari"; } 
+            else if (ua.includes("Firefox")) { br = "Firefox"; }
+            
+            return os + " / " + br;
         }
 
-        window.onload = () => {
-            document.getElementById('login-name').value = localStorage.getItem('chat_user_name') || "";
-            myColor = localStorage.getItem('chat_user_color') || "#000000";
-            document.getElementById('user-color').value = myColor;
-            document.getElementById('user-color-dynamic').value = myColor;
-            document.getElementById('notify-mode').value = localStorage.getItem('chat_notify_mode') || "sound";
+        window.onload = function() {
+            const savedName = localStorage.getItem('chat_user_name');
+            if (savedName) { document.getElementById('login-name').value = savedName; }
+            
+            const savedColor = localStorage.getItem('chat_user_color');
+            if (savedColor) {
+                myColor = savedColor;
+                document.getElementById('user-color').value = myColor;
+                document.getElementById('user-color-dynamic').value = myColor;
+            }
+
+            const savedNotify = localStorage.getItem('chat_notify_mode');
+            if (savedNotify) {
+                document.getElementById('notify-mode').value = savedNotify;
+            } else {
+                document.getElementById('notify-mode').value = "none";
+            }
 
             document.getElementById('enter-btn').onclick = enterChat;
             document.getElementById('send-btn').onclick = handleSend;
-            document.getElementById('leave-btn').onclick = () => leaveChat(false);
-            document.getElementById('notify-mode').onchange = (e) => { localStorage.setItem('chat_notify_mode', e.target.value); };
-            document.getElementById('user-color-dynamic').onchange = (e) => {
+            document.getElementById('leave-btn').onclick = function() { leaveChat(false); };
+            
+            document.getElementById('notify-mode').onchange = function(e) { 
+                localStorage.setItem('chat_notify_mode', e.target.value); 
+            };
+            
+            document.getElementById('user-color-dynamic').onchange = function(e) {
                 myColor = e.target.value;
                 localStorage.setItem('chat_user_color', myColor);
-                if(document.querySelector('.my-name-link')) document.querySelector('.my-name-link').style.color = myColor;
+                const link = document.querySelector('.my-name-link');
+                if (link) { link.style.color = myColor; }
             };
             setupChannel();
         };
@@ -141,16 +182,17 @@
         function setupChannel() {
             mainChannel = client.channel('room-1');
             mainChannel
-                .on('presence', { event: 'sync' }, async () => {
+                .on('presence', { event: 'sync' }, async function() {
                     const state = mainChannel.presenceState();
-                    document.getElementById('pre-login-info').textContent = `現在の入室者: ${Object.keys(state).length}名`;
+                    const count = Object.keys(state).length;
+                    document.getElementById('pre-login-info').textContent = "現在の入室者: " + count + "名";
                     updateUserList(state);
                     if (isPendingEntry && !isEntered) { completeEntry(); }
                 })
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, function(payload) {
                     if (isEntered) { displayMessage(payload.new, true); }
                 })
-                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, () => {
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, function() {
                     if (isEntered) { document.getElementById('chat-log').innerHTML = ""; }
                 })
                 .subscribe();
@@ -158,41 +200,75 @@
 
         async function enterChat() {
             const nameInput = document.getElementById('login-name').value.trim();
-            if (!nameInput) return alert("名前を入力してください");
+            if (!nameInput) { return alert("名前を入力してください"); }
+            
             const state = mainChannel.presenceState();
-            const isExist = Object.values(state).some(presence => 
-                presence.some(user => user.user_name === nameInput)
-            );
-            if (isExist) { alert("その名前は既に使用されています"); return; }
+            const isExist = Object.values(state).some(function(presence) {
+                return presence.some(function(user) { return user.user_name === nameInput; });
+            });
+            
+            if (isExist) { return alert("その名前は既に使用されています"); }
+            
             document.getElementById('enter-btn').disabled = true;
-            try { const res = await fetch('https://api.ipify.org?format=json'); const data = await res.json(); myIP = data.ip; } catch (e) { myIP = "unknown"; }
-            myName = nameInput; myColor = document.getElementById('user-color').value;
-            localStorage.setItem('chat_user_name', myName); localStorage.setItem('chat_user_color', myColor);
+            try { 
+                const res = await fetch('https://api.ipify.org?format=json'); 
+                const data = await res.json(); 
+                myIP = data.ip; 
+            } catch (e) { 
+                myIP = "unknown"; 
+            }
+            
+            myName = nameInput; 
+            myColor = document.getElementById('user-color').value;
+            localStorage.setItem('chat_user_name', myName); 
+            localStorage.setItem('chat_user_color', myColor);
+            
             isPendingEntry = true;
             await mainChannel.track({ user_name: myName, online_at: new Date().toISOString() });
-            setTimeout(() => { if (!isEntered) completeEntry(); }, 2000);
+            
+            setTimeout(function() { 
+                if (!isEntered) { completeEntry(); } 
+            }, 2000);
         }
 
         async function completeEntry() {
             isEntered = true;
+            lastActivity = Date.now();
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
+            
             const state = mainChannel.presenceState();
             if (Object.keys(state).length - 1 <= 0) {
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
-            } else { await loadPastMessages(); }
-            const envDisplay = `(${parseUA(myUA)} / ${maskIP(myIP)})`;
-            await sendSystemMessage(`${myName}さんが入室しました${envDisplay}`);
-            document.getElementById('message').onkeypress = e => { if (e.key === 'Enter') handleSend(); };
+            } else { 
+                await loadPastMessages(); 
+            }
+            
+            const envDisplay = "(" + parseUA(myUA) + " / " + maskIP(myIP) + ")";
+            await sendSystemMessage(myName + "さんが入室しました" + envDisplay);
+            
+            document.getElementById('message').onkeypress = function(e) { 
+                if (e.key === 'Enter') { handleSend(); } 
+            };
             setInterval(checkInactivity, 60000);
         }
 
         async function loadPastMessages() {
-            const { data } = await client.from('messages').select('*').or('to_user.is.null,username.eq.PUNISHMENT,content.ilike.%🎲%,username.eq.SYSTEM').order('id', { ascending: false }).limit(50);
+            // A案: 古い順(ascending: true)で取得し、順次prependすることで最新を上にする
+            const response = await client.from('messages')
+                .select('*')
+                .or('to_user.is.null,username.eq.PUNISHMENT,content.ilike.%🎲%,username.eq.SYSTEM')
+                .order('id', { ascending: true }) 
+                .limit(50);
+            
             const log = document.getElementById('chat-log');
             log.innerHTML = "";
-            if (data) { data.slice().reverse().forEach(msg => { displayMessage(msg, false); }); }
+            if (response.data) { 
+                response.data.forEach(function(msg) { 
+                    displayMessage(msg, false); 
+                }); 
+            }
         }
 
         async function handleSend() {
@@ -200,114 +276,168 @@
             const messageEl = document.getElementById('message');
             const toUser = document.getElementById('to-user').value;
             const content = messageEl.value.trim();
-            if (!content) return;
+            if (!content) { return; }
 
-            let finalContent = content; let finalUsername = myName; let finalToUser = toUser || null;
+            let finalContent = content; 
+            let finalUsername = myName; 
+            let finalToUser = null;
+            if (toUser) { finalToUser = toUser; }
 
             if (!toUser) {
                 if (content === "オールクリア") {
                     await client.from('messages').delete().neq('id', 0);
-                    await sendSystemMessage(`${myName}さんによってオールクリアされました`);
-                    messageEl.value = ''; return;
+                    await sendSystemMessage(myName + "さんによってオールクリアされました");
+                    messageEl.value = ''; 
+                    return;
                 }
-
                 const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
                 if (diceMatch) {
-                    const num = Math.min(parseInt(diceMatch[1]), 100); const sides = Math.min(parseInt(diceMatch[2]), 100); const plus = parseInt(diceMatch[3] || 0);
-                    let rolls = []; let total = 0;
-                    for(let i=0; i<num; i++) { const r = Math.floor(Math.random() * sides) + 1; rolls.push(r); total += r; }
-                    total += plus; finalContent = `🎲 (${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
+                    const num = Math.min(parseInt(diceMatch[1]), 100); 
+                    const sides = Math.min(parseInt(diceMatch[2]), 100); 
+                    const plus = parseInt(diceMatch[3] || 0);
+                    let rolls = []; 
+                    let total = 0;
+                    for(let i=0; i<num; i++) { 
+                        const r = Math.floor(Math.random() * sides) + 1; 
+                        rolls.push(r); 
+                        total += r; 
+                    }
+                    total += plus; 
+                    let diceStr = rolls.join('+');
+                    if (plus > 0) { diceStr += "+" + plus; }
+                    finalContent = "🎲 (" + diceStr + ") = 【" + total + "】";
                 }
-                
                 if (content === "罰") {
-                    const { data } = await client.from('punishments').select('*');
-                    if (data && data.length > 0) {
-                        const p = data[Math.floor(Math.random() * data.length)];
+                    const response = await client.from('punishments').select('*');
+                    if (response.data && response.data.length > 0) {
+                        const p = response.data[Math.floor(Math.random() * response.data.length)];
                         finalUsername = "PUNISHMENT";
-                        
                         let valClass = "p-val-default";
-                        if (p.type.includes("逆転")) valClass = "p-val-gyakuten";
-                        else if (p.type.includes("巻込")) valClass = "p-val-makikomi";
-
-                        finalContent = `◆ジャンル\n<span class="${valClass}">${p.type}</span>\n` +
-                                       `◆初回\n${p.first_time}\n` +
-                                       `◆初回条件を満たしている場合\n${p.second_time}\n` +
-                                       `◆パス／逝き奴隷／巻込奴隷\n${p.pass_status} ／ ${p.iki_slave} ／ ${p.maki_slave}`;
+                        if (p.type.includes("逆転")) { valClass = "p-val-gyakuten"; } 
+                        else if (p.type.includes("巻込")) { valClass = "p-val-makikomi"; }
+                        finalContent = "◆ジャンル\n<span class=\"" + valClass + "\">" + p.type + "</span>\n" +
+                                       "◆初回\n" + p.first_time + "\n" +
+                                       "◆初回条件を満たしている場合\n" + p.second_time + "\n" +
+                                       "◆パス／逝き奴隷／巻込奴隷\n" + p.pass_status + " ／ " + p.iki_slave + " ／ " + p.maki_slave;
                     }
                 }
             }
-
-            await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP, user_agent: myUA }]);
+            await client.from('messages').insert([{ 
+                username: finalUsername, 
+                content: finalContent, 
+                color: myColor, 
+                to_user: finalToUser, 
+                ip_address: myIP, 
+                user_agent: myUA 
+            }]);
             messageEl.value = '';
         }
 
-        function displayMessage(msg, isNew = true) {
+        function displayMessage(msg, isNew) {
             const log = document.getElementById('chat-log');
-            const isIM = msg.to_user === "@ALL_PRIVATE";
-            if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) return;
+            const isIM = (msg.to_user === "@ALL_PRIVATE");
+            
+            // 自分に関係ない私信なら無視
+            if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) { return; }
+
             const div = document.createElement('div');
-            const d = msg.created_at ? new Date(msg.created_at) : new Date();
-            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + String(d.getMinutes()).padStart(2, '0') + ":" + String(d.getSeconds()).padStart(2, '0');
+            let d = new Date();
+            if (msg.created_at) { d = new Date(msg.created_at); }
+            const h = String(d.getHours()).padStart(2, '0');
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const s = String(d.getSeconds()).padStart(2, '0');
+            const timeStr = h + ":" + m + ":" + s;
             
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
-                div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
+                div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\">" + msg.content + "</div>";
                 if (isNew && !msg.content.includes(myName)) {
-                    if (msg.content.includes("入室しました")) playNotify(log, 'in');
-                    if (msg.content.includes("退室しました")) playNotify(log, 'out');
+                    if (msg.content.includes("入室しました")) { playNotify(log, 'in'); }
+                    if (msg.content.includes("退室しました")) { playNotify(log, 'out'); }
                 }
             } else if (msg.username === 'PUNISHMENT') {
                 div.className = 'msg punishment-msg';
-                div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content">${msg.content}</div>`;
+                div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\">" + msg.content + "</div>";
             } else {
                 div.className = 'msg';
-                if (msg.to_user) div.classList.add('private-msg');
-                let toLabel = isIM ? `<span style="color:red;">[全員へ私信]</span> ` : (msg.to_user ? `<span style="color:red;">[${msg.to_user}へ]</span> ` : "");
-                div.innerHTML = `<span class="msg-time">${timeStr}</span><div class="msg-content"><strong style="color:${msg.color}">${msg.username}</strong>: ${toLabel}${msg.content}</div>`;
+                if (msg.to_user) { div.classList.add('private-msg'); }
+                let toLabel = "";
+                if (isIM) { toLabel = "<span style=\"color:red;\">[全員へ私信]</span> "; } 
+                else if (msg.to_user) { toLabel = "<span style=\"color:red;\">[" + msg.to_user + "へ]</span> "; }
+                div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\"><strong style=\"color:" + msg.color + "\">" + msg.username + "</strong>: " + toLabel + msg.content + "</div>";
             }
-            isNew ? log.prepend(div) : log.appendChild(div);
+
+            // A案: 古い順に取得されたものが順次prependされることで、最終的に最新が一番上に来る
+            log.prepend(div); 
         }
 
         function playNotify(logEl, type) {
             const mode = document.getElementById('notify-mode').value;
             if (mode === 'sound') {
-                if (type === 'in') audioIn.play().catch(()=>{});
-                if (type === 'out') audioOut.play().catch(()=>{});
+                if (type === 'in') { audioIn.play().catch(function(){}); }
+                if (type === 'out') { audioOut.play().catch(function(){}); }
             }
             if (mode === 'flash') {
                 logEl.classList.add('flash-active');
-                setTimeout(() => logEl.classList.remove('flash-active'), 1000);
+                setTimeout(function() { logEl.classList.remove('flash-active'); }, 1000);
             }
         }
 
         function updateUserList(state) {
-            const select = document.getElementById('to-user'); const display = document.getElementById('user-list-display');
-            const users = Object.values(state).map(p => p[0]).filter(u => u.user_name);
+            const select = document.getElementById('to-user'); 
+            const display = document.getElementById('user-list-display');
+            const users = Object.values(state).map(function(p) { return p[0]; }).filter(function(u) { return u.user_name; });
+            const names = Array.from(new Set(users.map(function(u) { return u.user_name; }))).sort();
             
-            // ★ .sort() を追加して、名前順（あいうえお順）で固定します
-            const names = Array.from(new Set(users.map(u => u.user_name))).sort();
-            
-            display.innerHTML = `参加者(${names.length}): `;
-            names.forEach((n, idx) => {
+            display.innerHTML = "参加者(" + names.length + "): ";
+            names.forEach(function(n, idx) {
                 const span = document.createElement('span');
-                if (n === myName) { span.className = 'my-name-link'; span.style.color = myColor; span.textContent = n; span.onclick = () => document.getElementById('user-color-dynamic').click(); }
-                else { span.textContent = n; }
-                display.appendChild(span); if (idx < names.length - 1) display.appendChild(document.createTextNode(', '));
+                if (n === myName) { 
+                    span.className = 'my-name-link'; 
+                    span.style.color = myColor; 
+                    span.textContent = n; 
+                    span.onclick = function() { document.getElementById('user-color-dynamic').click(); }; 
+                } else { 
+                    span.textContent = n; 
+                }
+                display.appendChild(span); 
+                if (idx < names.length - 1) { display.appendChild(document.createTextNode(', ')); }
             });
+
             const currentTo = select.value;
             select.innerHTML = '<option value=""> </option>';
-            names.forEach(n => { if (n !== myName) { const o = document.createElement('option'); o.value = n; o.textContent = n; select.appendChild(o); } });
-            select.innerHTML += '<option value="@ALL_PRIVATE">IM</option>'; select.value = currentTo;
+            names.forEach(function(n) { 
+                if (n !== myName) { 
+                    const o = document.createElement('option'); 
+                    o.value = n; o.textContent = n; select.appendChild(o); 
+                } 
+            });
+            select.innerHTML += '<option value="@ALL_PRIVATE">IM</option>'; 
+            select.value = currentTo;
         }
 
-        async function sendSystemMessage(text) { return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP, user_agent: myUA }]); }
-        
-        async function leaveChat(isAuto = false) { 
-            if(!isAuto && !confirm("退室しますか？")) return;
-            await sendSystemMessage(`${myName}さんが退室しました${isAuto ? '（タイムアウト）' : ''}`); 
-            setTimeout(() => location.reload(), 300); 
+        async function sendSystemMessage(text) { 
+            return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP, user_agent: myUA }]); 
         }
-        function checkInactivity() { if (isEntered && (Date.now() - lastActivity > 20 * 60 * 1000)) { leaveChat(true); } }
+        
+        async function leaveChat(isAuto) { 
+            if(!isAuto) { 
+                if (!confirm("退室しますか？")) { return; } 
+            }
+            let suffix = "";
+            if (isAuto) { suffix = "（タイムアウト）"; }
+            await sendSystemMessage(myName + "さんが退室しました" + suffix); 
+            setTimeout(function() { location.reload(); }, 300); 
+        }
+
+        function checkInactivity() { 
+            if (isEntered) {
+                const now = Date.now();
+                if (now - lastActivity > 20 * 60 * 1000) {
+                    leaveChat(true);
+                }
+            }
+        }
     </script>
 </body>
 </html>
