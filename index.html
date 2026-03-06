@@ -19,13 +19,27 @@
         .footer-info { font-size: 10px; color: #999; margin-top: 10px; text-align: center; line-height: 1.6; }
         .footer-info a { color: #666; text-decoration: underline; }
         #chat-log { flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 5px; background: #fff; -webkit-overflow-scrolling: touch; }
+        
         .msg, .system-msg { display: flex; align-items: flex-start; padding: 6px 4px; border-bottom: 1px solid #f5f5f5; font-size: 14px; line-height: 1.4; width: 100%; box-sizing: border-box; }
         .msg-time { color: #aaa; font-size: 10px; width: 65px; min-width: 65px; margin-top: 2px; flex-shrink: 0; }
         .msg-content { flex-grow: 1; overflow-wrap: anywhere; }
         .system-msg { color: #888; background-color: #fcfcfc; }
         .private-msg { background-color: #fff5f5; }
-        .punishment-msg { background-color: #eeeeee !important; padding: 10px 4px !important; border-radius: 8px; margin: 6px 0; border: none !important; display: flex !important; align-items: flex-start !important; }
-        .punishment-type { color: #ff0000; font-weight: bold; }
+
+        .punishment-msg { 
+            background-color: #eeeeee !important; 
+            padding: 10px 4px !important; 
+            border-radius: 8px; 
+            margin: 6px 0; 
+            border: none !important; 
+            display: flex !important; 
+            align-items: flex-start !important; 
+            white-space: pre-wrap;
+        }
+        .p-val-gyakuten { color: #0000ff; font-weight: bold; }
+        .p-val-makikomi { color: #ff8c00; font-weight: bold; }
+        .p-val-default { color: #ff0000; font-weight: bold; }
+
         .my-name-link { font-weight: bold; text-decoration: underline; cursor: pointer; }
         @keyframes flash-white { 0% { background-color: #fff; } 50% { background-color: #ccc; } 100% { background-color: #fff; } }
         .flash-active { animation: flash-white 0.3s ease-in-out 3; }
@@ -92,14 +106,12 @@
         const audioIn = document.getElementById('sound-in');
         const audioOut = document.getElementById('sound-out');
 
-        // IPの第3オクテットを伏せ字にする
         function maskIP(ip) {
             if (!ip || ip === "unknown") return "unknown";
             const parts = ip.split('.');
             return parts.length === 4 ? `${parts[0]}.${parts[1]}.***.${parts[3]}` : ip;
         }
 
-        // UAからOS/Browserを簡易抽出
         function parseUA(ua) {
             let os = "OS不明"; let br = "Browser不明";
             if (ua.includes("Win")) os = "Windows"; else if (ua.includes("Android")) os = "Android"; else if (ua.includes("iPhone") || ua.includes("iPad")) os = "iOS"; else if (ua.includes("Mac")) os = "Mac";
@@ -147,6 +159,11 @@
         async function enterChat() {
             const nameInput = document.getElementById('login-name').value.trim();
             if (!nameInput) return alert("名前を入力してください");
+            const state = mainChannel.presenceState();
+            const isExist = Object.values(state).some(presence => 
+                presence.some(user => user.user_name === nameInput)
+            );
+            if (isExist) { alert("その名前は既に使用されています"); return; }
             document.getElementById('enter-btn').disabled = true;
             try { const res = await fetch('https://api.ipify.org?format=json'); const data = await res.json(); myIP = data.ip; } catch (e) { myIP = "unknown"; }
             myName = nameInput; myColor = document.getElementById('user-color').value;
@@ -165,11 +182,8 @@
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
             } else { await loadPastMessages(); }
-
-            // 入室メッセージに環境情報を付与
             const envDisplay = `(${parseUA(myUA)} / ${maskIP(myIP)})`;
             await sendSystemMessage(`${myName}さんが入室しました${envDisplay}`);
-            
             document.getElementById('message').onkeypress = e => { if (e.key === 'Enter') handleSend(); };
             setInterval(checkInactivity, 60000);
         }
@@ -187,13 +201,16 @@
             const toUser = document.getElementById('to-user').value;
             const content = messageEl.value.trim();
             if (!content) return;
+
             let finalContent = content; let finalUsername = myName; let finalToUser = toUser || null;
 
-            if (content === "オールクリア") {
-                if(confirm("ログを全消去しますか？")) { await client.from('messages').delete().neq('id', 0); }
-                messageEl.value = ''; return;
-            }
             if (!toUser) {
+                if (content === "オールクリア") {
+                    await client.from('messages').delete().neq('id', 0);
+                    await sendSystemMessage(`${myName}さんによってオールクリアされました`);
+                    messageEl.value = ''; return;
+                }
+
                 const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
                 if (diceMatch) {
                     const num = Math.min(parseInt(diceMatch[1]), 100); const sides = Math.min(parseInt(diceMatch[2]), 100); const plus = parseInt(diceMatch[3] || 0);
@@ -201,16 +218,25 @@
                     for(let i=0; i<num; i++) { const r = Math.floor(Math.random() * sides) + 1; rolls.push(r); total += r; }
                     total += plus; finalContent = `🎲 (${rolls.join('+')})${plus?'+'+plus:''} = 【${total}】`;
                 }
+                
                 if (content === "罰") {
                     const { data } = await client.from('punishments').select('*');
                     if (data && data.length > 0) {
                         const p = data[Math.floor(Math.random() * data.length)];
                         finalUsername = "PUNISHMENT";
-                        finalContent = `<span class="punishment-type">【${p.type}】</span>内容：${p.first_time}/2回目：${p.second_time}/パス:${p.pass_status}/逝きマゾ：${p.iki_slave}/巻込：${p.maki_slave}`;
+                        
+                        let valClass = "p-val-default";
+                        if (p.type.includes("逆転")) valClass = "p-val-gyakuten";
+                        else if (p.type.includes("巻込")) valClass = "p-val-makikomi";
+
+                        finalContent = `◆ジャンル\n<span class="${valClass}">${p.type}</span>\n` +
+                                       `◆初回\n${p.first_time}\n` +
+                                       `◆初回条件を満たしている場合\n${p.second_time}\n` +
+                                       `◆パス／逝き奴隷／巻込奴隷\n${p.pass_status} ／ ${p.iki_slave} ／ ${p.maki_slave}`;
                     }
                 }
             }
-            // user_agentも送信
+
             await client.from('messages').insert([{ username: finalUsername, content: finalContent, color: myColor, to_user: finalToUser, ip_address: myIP, user_agent: myUA }]);
             messageEl.value = '';
         }
@@ -257,7 +283,10 @@
         function updateUserList(state) {
             const select = document.getElementById('to-user'); const display = document.getElementById('user-list-display');
             const users = Object.values(state).map(p => p[0]).filter(u => u.user_name);
-            const names = Array.from(new Set(users.map(u => u.user_name)));
+            
+            // ★ .sort() を追加して、名前順（あいうえお順）で固定します
+            const names = Array.from(new Set(users.map(u => u.user_name))).sort();
+            
             display.innerHTML = `参加者(${names.length}): `;
             names.forEach((n, idx) => {
                 const span = document.createElement('span');
