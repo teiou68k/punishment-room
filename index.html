@@ -55,10 +55,17 @@
         <h2>調教部屋 入室</h2>
         <div id="pre-login-info" style="font-size:12px; margin-bottom:10px;">接続中...</div>
         <input type="text" id="login-name" placeholder="名前を入力">
-        <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom: 20px;">
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom: 15px;">
             <input type="color" id="user-color" value="#000000" style="width:40px; height:30px;"> 
             <span style="font-size:12px;">文字色</span>
         </div>
+
+        <div style="margin-bottom: 20px; padding: 12px; background: #f9f9f9; border-radius: 8px; border: 1px solid #ddd; text-align: center;">
+            <p style="font-size: 12px; margin: 0 0 8px 0; color: #555; font-weight: bold;">OS通知設定（ブラウザ単位）</p>
+            <button type="button" onclick="subscribePush()" style="padding: 6px 12px; font-size: 11px; background: #3498db; color: white; border: none; border-radius: 3px; cursor: pointer;">🔔 登録</button>
+            <button type="button" onclick="unsubscribePush()" style="padding: 6px 12px; font-size: 11px; background: #95a5a6; color: white; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">🔕 解除</button>
+        </div>
+
         <button id="enter-btn" style="width: 80%; padding: 12px; background: #333; color: white; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">入室する</button>
         <div class="footer-info">
             <a href="https://sites.google.com/view/osiokimesu/" target="_blank">利用ルール・世界観</a><br>
@@ -77,7 +84,7 @@
                         <option value="flash">フラッシュ</option>
                     </select>
                     <button id="leave-btn" style="background: #e74c3c; color: white; padding: 2px 8px; font-size: 10px; border-radius:3px; border:none; cursor:pointer;">退室</button>
-                </div>
+                    </div>
             </div>
             <div class="input-area">
                 <select id="to-user"><option value=""> </option></select>
@@ -147,13 +154,11 @@
         }
 
         window.onload = function() {
-            // --- 追加：Service Workerの登録 ---
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('sw.js').then(function() {
                     console.log('Service Worker Registered');
                 });
             }
-            // -------------------------------
 
             const savedName = localStorage.getItem('chat_user_name');
             if (savedName) { document.getElementById('login-name').value = savedName; }
@@ -265,7 +270,6 @@
         }
 
         async function loadPastMessages() {
-            // A案: 古い順(ascending: true)で取得し、順次prependすることで最新を上にする
             const response = await client.from('messages')
                 .select('*')
                 .or('to_user.is.null,username.eq.PUNISHMENT,content.ilike.%🎲%,username.eq.SYSTEM')
@@ -347,7 +351,6 @@
             const log = document.getElementById('chat-log');
             const isIM = (msg.to_user === "@ALL_PRIVATE");
             
-            // 自分に関係ない私信なら無視
             if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) { return; }
 
             const div = document.createElement('div');
@@ -377,7 +380,6 @@
                 div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\"><strong style=\"color:" + msg.color + "\">" + msg.username + "</strong>: " + toLabel + msg.content + "</div>";
             }
 
-            // A案: 古い順に取得されたものが順次prependされることで、最終的に最新が一番上に来る
             log.prepend(div); 
         }
 
@@ -448,6 +450,72 @@
                 }
             }
         }
+
+        // ==========================================
+        // OS Push通知の登録・解除ロジック
+        // ==========================================
+        const VAPID_PUBLIC_KEY = 'BG6BmliA7Ch7aEaX9IhoVtsfsm4trfi9tszwu-pcy-G4a3fsqPwmx_IUnrygepPO86aE1FOyp5z2jR8iCbR6y_U';
+
+        const urlBase64ToUint8Array = (base64String) => {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+        };
+
+        // 通知を登録する関数
+        async function subscribePush() {
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                const sub = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                });
+
+                // 宛先情報をSupabaseに保存（すでにあれば上書き）
+                const { error } = await client
+                    .from('push_subscriptions')
+                    .upsert({
+                        subscription: sub,
+                        user_name: 'GUEST' // OS通知用なので固定値でOK
+                    }, { 
+                        onConflict: 'subscription' 
+                    });
+
+                if (error) throw error;
+                alert('OS通知を登録しました！ブラウザを閉じていても通知が届きます。');
+            } catch (err) {
+                console.error('Push failed:', err);
+                alert('登録失敗。ブラウザの通知権限を確認してください。');
+            }
+        }
+
+        // 通知を解除する関数
+        async function unsubscribePush() {
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                const sub = await registration.pushManager.getSubscription();
+                
+                if (sub) {
+                    // 修正ポイント: JSONの中にある 'endpoint' をキーにしてDBを検索・削除
+                    const { error } = await client
+                        .from('push_subscriptions')
+                        .delete()
+                        .eq('subscription->>endpoint', sub.endpoint);
+                    
+                    // DB側の削除でエラーが出たらここで処理を止める（状態不整合を防ぐため）
+                    if (error) throw error;
+                    
+                    // DBから正常に消えた場合のみ、ブラウザ側の購読を解除する
+                    await sub.unsubscribe();
+                }
+                alert('OS通知を解除しました。');
+            } catch (err) {
+                console.error('Unsubscribe failed:', err);
+                alert('解除に失敗しました。');
+            }
+        }
+
     </script>
 </body>
 </html>
