@@ -112,7 +112,15 @@
             targetUrl = DEV_URL;
             targetKey = DEV_KEY;
         }
-        const client = supabase.createClient(targetUrl, targetKey);
+
+        // リアルタイム接続の最適化（ネスト構造を維持）
+        const client = supabase.createClient(targetUrl, targetKey, {
+            realtime: {
+                params: {
+                    eventsPerSecond: 10,
+                },
+            },
+        });
 
         let myName = ""; 
         let myColor = "#000000"; 
@@ -122,6 +130,7 @@
         let isPendingEntry = false;
         let myIP = ""; 
         const myUA = navigator.userAgent;
+        const myTabId = crypto.randomUUID(); // タブ識別用ID
 
         const audioIn = document.getElementById('sound-in');
         const audioOut = document.getElementById('sound-out');
@@ -140,15 +149,25 @@
         function parseUA(ua) {
             let os = "OS不明"; 
             let br = "Browser不明";
-            if (ua.includes("Win")) { os = "Windows"; } 
-            else if (ua.includes("Android")) { os = "Android"; } 
-            else if (ua.includes("iPhone") || ua.includes("iPad")) { os = "iOS"; } 
-            else if (ua.includes("Mac")) { os = "Mac"; }
+            if (ua.includes("Win")) {
+                os = "Windows";
+            } else if (ua.includes("Android")) {
+                os = "Android";
+            } else if (ua.includes("iPhone") || ua.includes("iPad")) {
+                os = "iOS";
+            } else if (ua.includes("Mac")) {
+                os = "Mac";
+            }
 
-            if (ua.includes("Edge") || ua.includes("Edg")) { br = "Edge"; } 
-            else if (ua.includes("Chrome")) { br = "Chrome"; } 
-            else if (ua.includes("Safari")) { br = "Safari"; } 
-            else if (ua.includes("Firefox")) { br = "Firefox"; }
+            if (ua.includes("Edge") || ua.includes("Edg")) {
+                br = "Edge";
+            } else if (ua.includes("Chrome")) {
+                br = "Chrome";
+            } else if (ua.includes("Safari")) {
+                br = "Safari";
+            } else if (ua.includes("Firefox")) {
+                br = "Firefox";
+            }
             
             return os + " / " + br;
         }
@@ -161,7 +180,9 @@
             }
 
             const savedName = localStorage.getItem('chat_user_name');
-            if (savedName) { document.getElementById('login-name').value = savedName; }
+            if (savedName) { 
+                document.getElementById('login-name').value = savedName; 
+            }
             
             const savedColor = localStorage.getItem('chat_user_color');
             if (savedColor) {
@@ -189,62 +210,138 @@
                 myColor = e.target.value;
                 localStorage.setItem('chat_user_color', myColor);
                 const link = document.querySelector('.my-name-link');
-                if (link) { link.style.color = myColor; }
+                if (link) { 
+                    link.style.color = myColor; 
+                }
             };
             setupChannel();
         };
 
         function setupChannel() {
-            mainChannel = client.channel('room-1');
+            // PresenceのキーにmyTabIdを使用して、複数タブを許容する
+            mainChannel = client.channel('room-1', {
+                config: {
+                    presence: {
+                        key: myTabId,
+                    },
+                },
+            });
             mainChannel
                 .on('presence', { event: 'sync' }, async function() {
                     const state = mainChannel.presenceState();
-                    const count = Object.keys(state).length;
+                    
+                    const users = Object.values(state).flat();
+                    const uniqueNames = new Set(users.map(function(u) { return u.user_name; }).filter(Boolean));
+                    const count = uniqueNames.size;
+                    
                     document.getElementById('pre-login-info').textContent = "現在の入室者: " + count + "名";
                     updateUserList(state);
-                    if (isPendingEntry && !isEntered) { completeEntry(); }
+                    if (isPendingEntry && !isEntered) { 
+                        completeEntry(); 
+                    }
                 })
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, function(payload) {
-                    if (isEntered) { displayMessage(payload.new, true); }
+                    if (isEntered) { 
+                        displayMessage(payload.new, true); 
+                    }
                 })
                 .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, function() {
-                    if (isEntered) { document.getElementById('chat-log').innerHTML = ""; }
+                    if (isEntered) { 
+                        document.getElementById('chat-log').innerHTML = ""; 
+                    }
                 })
-                .subscribe();
+                .subscribe(async function(status) {
+                    if (status === 'SUBSCRIBED' && isEntered) {
+                        await mainChannel.track({ 
+                            user_name: myName, 
+                            tab_id: myTabId, 
+                            online_at: new Date().toISOString() 
+                        });
+                    }
+                });
         }
 
-        async function enterChat() {
-            const nameInput = document.getElementById('login-name').value.trim();
-            if (!nameInput) { return alert("名前を入力してください"); }
-            
-            const state = mainChannel.presenceState();
-            const isExist = Object.values(state).some(function(presence) {
-                return presence.some(function(user) { return user.user_name === nameInput; });
-            });
-            
-            if (isExist) { return alert("その名前は既に使用されています"); }
-            
-            document.getElementById('enter-btn').disabled = true;
-            try { 
-                const res = await fetch('https://api.ipify.org?format=json'); 
-                const data = await res.json(); 
-                myIP = data.ip; 
-            } catch (e) { 
-                myIP = "unknown"; 
-            }
-            
-            myName = nameInput; 
-            myColor = document.getElementById('user-color').value;
-            localStorage.setItem('chat_user_name', myName); 
-            localStorage.setItem('chat_user_color', myColor);
-            
-            isPendingEntry = true;
-            await mainChannel.track({ user_name: myName, online_at: new Date().toISOString() });
-            
-            setTimeout(function() { 
-                if (!isEntered) { completeEntry(); } 
-            }, 2000);
+		async function enterChat() {
+	        const nameInput = document.getElementById('login-name').value.trim();
+	        if (!nameInput) {
+	            alert("名前を入力してください");
+	            return;
+	        }
+	
+	        // 1. IPアドレスの取得
+	        try {
+	            const res = await fetch('https://api.ipify.org?format=json');
+	            const data = await res.json();
+	            // 型の揺れを防ぐため文字列として正規化
+	            myIP = String(data.ip || "unknown").trim();
+	        } catch (e) {
+	            myIP = "unknown";
+	        }
+	
+	        // 2. 現在のユーザーリスト（Presence）取得
+	        const state = mainChannel.presenceState();
+	        const allUsers = Object.values(state).flat();
+	
+	        // 3. 重複・なりすましチェック
+	        const isOtherPerson = allUsers.some(function(u) {
+	            // 名前が違えば、そもそも判定対象（他人）ではない
+	            if (u.user_name !== nameInput) {
+	                return false;
+	            }
+	
+	            // --- ここから「名前が一致したユーザー」の精査 ---
+	            
+	            // DB側のIPを文字列として正規化
+	            const savedIP = String(u.ip || "").trim();
+	
+	            // 以下のいずれかに該当すれば「自分自身のセッション（または残像）」とみなす
+	            const isMe = (
+	                savedIP === "" ||           // IPが未登録
+	                savedIP === "undefined" ||  // 以前のバグでundefinedが書き込まれた残像
+	                savedIP === myIP ||         // IPが完全に一致
+	                u.tab_id === myTabId        // タブIDが一致（同一セッション）
+	            );
+	
+	            // 「自分ではない」＝「なりすまし（他人）」がいる場合に true を返す
+	            if (!isMe) {
+	                return true;
+	            } else {
+	                return false;
+	            }
+	        });
+	
+	        if (isOtherPerson) {
+	            alert("その名前は既に使用されています");
+	            return;
+	        }
+	
+	        // --- 以降、入室確定処理 ---
+	        document.getElementById('enter-btn').disabled = true;
+	        
+	        myName = nameInput;
+	        myColor = document.getElementById('user-color').value;
+	        
+	        localStorage.setItem('chat_user_name', myName);
+	        localStorage.setItem('chat_user_color', myColor);
+	
+	        isPendingEntry = true;
+	
+	        // Presenceに自身の情報を登録（ここで確実にmyIPを渡す）
+	        await mainChannel.track({
+	            user_name: myName,
+	            tab_id: myTabId,
+	            ip: myIP,
+	            online_at: new Date().toISOString()
+	        });
+	
+	        // 入室完了待機
+	        setTimeout(function() {
+	            if (!isEntered) {
+	                completeEntry();
+	            }
+	        }, 2000);
         }
+
 
         async function completeEntry() {
             isEntered = true;
@@ -253,19 +350,45 @@
             document.getElementById('chat-screen').style.display = 'flex';
             
             const state = mainChannel.presenceState();
-            if (Object.keys(state).length - 1 <= 0) {
+            const allUsers = Object.values(state).flat();
+            
+            // 同一ユーザーの別タブがいるか確認
+            const otherTabsOfMe = allUsers.filter(function(u) {
+                return u.user_name === myName && u.tab_id !== myTabId;
+            });
+
+            // 全体で最初の一人（自分だけ）ならログを掃除
+            if (allUsers.length <= 1) {
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
             } else { 
                 await loadPastMessages(); 
             }
             
-            const envDisplay = "(" + parseUA(myUA) + " / " + maskIP(myIP) + ")";
-            await sendSystemMessage(myName + "さんが入室しました" + envDisplay);
+            // 自分の別タブが存在しない（＝この名前で最初の入室）場合のみ入室メッセージを送信
+            if (otherTabsOfMe.length === 0) {
+                const envDisplay = "(" + parseUA(myUA) + " / " + maskIP(myIP) + ")";
+                await sendSystemMessage(myName + "さんが入室しました" + envDisplay);
+            }
             
             document.getElementById('message').onkeypress = function(e) { 
-                if (e.key === 'Enter') { handleSend(); } 
+                if (e.key === 'Enter') { 
+                    handleSend(); 
+                } 
             };
+
+            // 生存確認
+            setInterval(async function() {
+                if (isEntered && mainChannel) {
+                    await mainChannel.track({ 
+                        user_name: myName, 
+                        tab_id: myTabId,
+                        online_at: new Date().toISOString(),
+                        hb: Date.now() 
+                    });
+                }
+            }, 30000);
+
             setInterval(checkInactivity, 60000);
         }
 
@@ -290,12 +413,16 @@
             const messageEl = document.getElementById('message');
             const toUser = document.getElementById('to-user').value;
             const content = messageEl.value.trim();
-            if (!content) { return; }
+            if (!content) { 
+                return; 
+            }
 
             let finalContent = content; 
             let finalUsername = myName; 
             let finalToUser = null;
-            if (toUser) { finalToUser = toUser; }
+            if (toUser) { 
+                finalToUser = toUser; 
+            }
 
             if (!toUser) {
                 if (content === "オールクリア") {
@@ -318,17 +445,24 @@
                     }
                     total += plus; 
                     let diceStr = rolls.join('+');
-                    if (plus > 0) { diceStr += "+" + plus; }
-                    finalContent = "🎲 (" + diceStr + ") = 【" + total + "】";
+                    if (plus > 0) { 
+                        diceStr += "+" + plus; 
+                    }
+                    finalContent = "🎲 " + content + "：(" + diceStr + ") = 【" + total + "】";
                 }
                 if (content === "罰") {
                     const response = await client.from('punishments').select('*');
                     if (response.data && response.data.length > 0) {
                         const p = response.data[Math.floor(Math.random() * response.data.length)];
                         finalUsername = "PUNISHMENT";
+                        
                         let valClass = "p-val-default";
-                        if (p.type.includes("逆転")) { valClass = "p-val-gyakuten"; } 
-                        else if (p.type.includes("巻込")) { valClass = "p-val-makikomi"; }
+                        if (p.type.includes("逆転")) {
+                            valClass = "p-val-gyakuten";
+                        } else if (p.type.includes("巻込")) {
+                            valClass = "p-val-makikomi";
+                        }
+                        
                         finalContent = "◆ジャンル\n<span class=\"" + valClass + "\">" + p.type + "</span>\n" +
                                        "◆初回\n" + p.first_time + "\n" +
                                        "◆初回条件を満たしている場合\n" + p.second_time + "\n" +
@@ -351,32 +485,44 @@
             const log = document.getElementById('chat-log');
             const isIM = (msg.to_user === "@ALL_PRIVATE");
             
-            if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) { return; }
+            if (msg.to_user && msg.to_user !== myName && msg.username !== myName && !isIM) { 
+                return; 
+            }
 
             const div = document.createElement('div');
             let d = new Date();
-            if (msg.created_at) { d = new Date(msg.created_at); }
-            const h = String(d.getHours()).padStart(2, '0');
-            const m = String(d.getMinutes()).padStart(2, '0');
-            const s = String(d.getSeconds()).padStart(2, '0');
-            const timeStr = h + ":" + m + ":" + s;
+            if (msg.created_at) { 
+                d = new Date(msg.created_at); 
+            }
+            const timeStr = String(d.getHours()).padStart(2, '0') + ":" + 
+                            String(d.getMinutes()).padStart(2, '0') + ":" + 
+                            String(d.getSeconds()).padStart(2, '0');
             
             if (msg.username === 'SYSTEM') {
                 div.className = 'system-msg';
                 div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\">" + msg.content + "</div>";
                 if (isNew && !msg.content.includes(myName)) {
-                    if (msg.content.includes("入室しました")) { playNotify(log, 'in'); }
-                    if (msg.content.includes("退室しました")) { playNotify(log, 'out'); }
+                    if (msg.content.includes("入室しました")) { 
+                        playNotify(log, 'in'); 
+                    }
+                    if (msg.content.includes("退室しました")) { 
+                        playNotify(log, 'out'); 
+                    }
                 }
             } else if (msg.username === 'PUNISHMENT') {
                 div.className = 'msg punishment-msg';
                 div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\">" + msg.content + "</div>";
             } else {
                 div.className = 'msg';
-                if (msg.to_user) { div.classList.add('private-msg'); }
+                if (msg.to_user) { 
+                    div.classList.add('private-msg'); 
+                }
                 let toLabel = "";
-                if (isIM) { toLabel = "<span style=\"color:red;\">[全員へ私信]</span> "; } 
-                else if (msg.to_user) { toLabel = "<span style=\"color:red;\">[" + msg.to_user + "へ]</span> "; }
+                if (isIM) { 
+                    toLabel = "<span style=\"color:red;\">[全員へ私信]</span> "; 
+                } else if (msg.to_user) { 
+                    toLabel = "<span style=\"color:red;\">[" + msg.to_user + "へ]</span> "; 
+                }
                 div.innerHTML = "<span class=\"msg-time\">" + timeStr + "</span><div class=\"msg-content\"><strong style=\"color:" + msg.color + "\">" + msg.username + "</strong>: " + toLabel + msg.content + "</div>";
             }
 
@@ -386,19 +532,27 @@
         function playNotify(logEl, type) {
             const mode = document.getElementById('notify-mode').value;
             if (mode === 'sound') {
-                if (type === 'in') { audioIn.play().catch(function(){}); }
-                if (type === 'out') { audioOut.play().catch(function(){}); }
+                if (type === 'in') { 
+                    audioIn.play().catch(function(){}); 
+                }
+                if (type === 'out') { 
+                    audioOut.play().catch(function(){}); 
+                }
             }
             if (mode === 'flash') {
                 logEl.classList.add('flash-active');
-                setTimeout(function() { logEl.classList.remove('flash-active'); }, 1000);
+                setTimeout(function() { 
+                    logEl.classList.remove('flash-active'); 
+                }, 1000);
             }
         }
 
         function updateUserList(state) {
             const select = document.getElementById('to-user'); 
             const display = document.getElementById('user-list-display');
-            const users = Object.values(state).map(function(p) { return p[0]; }).filter(function(u) { return u.user_name; });
+            const users = Object.values(state).flat().filter(function(u) { 
+                return u.user_name; 
+            });
             const names = Array.from(new Set(users.map(function(u) { return u.user_name; }))).sort();
             
             display.innerHTML = "参加者(" + names.length + "): ";
@@ -408,12 +562,16 @@
                     span.className = 'my-name-link'; 
                     span.style.color = myColor; 
                     span.textContent = n; 
-                    span.onclick = function() { document.getElementById('user-color-dynamic').click(); }; 
+                    span.onclick = function() { 
+                        document.getElementById('user-color-dynamic').click(); 
+                    }; 
                 } else { 
                     span.textContent = n; 
                 }
                 display.appendChild(span); 
-                if (idx < names.length - 1) { display.appendChild(document.createTextNode(', ')); }
+                if (idx < names.length - 1) { 
+                    display.appendChild(document.createTextNode(', ')); 
+                }
             });
 
             const currentTo = select.value;
@@ -421,7 +579,9 @@
             names.forEach(function(n) { 
                 if (n !== myName) { 
                     const o = document.createElement('option'); 
-                    o.value = n; o.textContent = n; select.appendChild(o); 
+                    o.value = n; 
+                    o.textContent = n; 
+                    select.appendChild(o); 
                 } 
             });
             select.innerHTML += '<option value="@ALL_PRIVATE">IM</option>'; 
@@ -429,17 +589,44 @@
         }
 
         async function sendSystemMessage(text) { 
-            return await client.from('messages').insert([{ username: 'SYSTEM', content: text, color: '#888888', ip_address: myIP, user_agent: myUA }]); 
+            return await client.from('messages').insert([{ 
+                username: 'SYSTEM', 
+                content: text, 
+                color: '#888888', 
+                ip_address: myIP, 
+                user_agent: myUA 
+            }]); 
         }
         
         async function leaveChat(isAuto) { 
-            if(!isAuto) { 
-                if (!confirm("退室しますか？")) { return; } 
+            if (!isAuto) { 
+                if (!confirm("退室しますか？")) { 
+                    return; 
+                } 
             }
-            let suffix = "";
-            if (isAuto) { suffix = "（タイムアウト）"; }
-            await sendSystemMessage(myName + "さんが退室しました" + suffix); 
-            setTimeout(function() { location.reload(); }, 300); 
+            
+            const state = mainChannel.presenceState();
+            const allUsers = Object.values(state).flat();
+            // 自分と同じ名前の他タブが残っているか確認
+            const otherTabsOfMe = allUsers.filter(function(u) {
+                return u.user_name === myName && u.tab_id !== myTabId;
+            });
+
+            // 最後のタブを閉じる時だけ退室ログを流す
+            if (otherTabsOfMe.length === 0) {
+                let suffix = "";
+                if (isAuto) { 
+                    suffix = "（タイムアウト）"; 
+                }
+                await sendSystemMessage(myName + "さんが退室しました" + suffix); 
+            }
+
+            if (mainChannel) {
+                await mainChannel.untrack();
+            }
+            setTimeout(function() { 
+                location.reload(); 
+            }, 300); 
         }
 
         function checkInactivity() { 
@@ -451,19 +638,23 @@
             }
         }
 
-        // ==========================================
-        // OS Push通知の登録・解除ロジック
-        // ==========================================
+        window.addEventListener('beforeunload', function() {
+            if (isEntered && mainChannel) {
+                mainChannel.untrack();
+            }
+        });
+
         const VAPID_PUBLIC_KEY = 'BG6BmliA7Ch7aEaX9IhoVtsfsm4trfi9tszwu-pcy-G4a3fsqPwmx_IUnrygepPO86aE1FOyp5z2jR8iCbR6y_U';
 
-        const urlBase64ToUint8Array = (base64String) => {
+        const urlBase64ToUint8Array = function(base64String) {
             const padding = '='.repeat((4 - base64String.length % 4) % 4);
             const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
             const rawData = window.atob(base64);
-            return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+            return Uint8Array.from([...rawData].map(function(char) { 
+                return char.charCodeAt(0); 
+            }));
         };
 
-        // 通知を登録する関数
         async function subscribePush() {
             try {
                 const registration = await navigator.serviceWorker.ready;
@@ -472,41 +663,39 @@
                     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
                 });
 
-                // 宛先情報をSupabaseに保存（すでにあれば上書き）
                 const { error } = await client
                     .from('push_subscriptions')
                     .upsert({
                         subscription: sub,
-                        user_name: 'GUEST' // OS通知用なので固定値でOK
+                        user_name: 'GUEST'
                     }, { 
                         onConflict: 'subscription' 
                     });
 
-                if (error) throw error;
-                alert('OS通知を登録しました！ブラウザを閉じていても通知が届きます。');
+                if (error) {
+                    throw error;
+                }
+                alert('OS通知を登録しました！');
             } catch (err) {
                 console.error('Push failed:', err);
                 alert('登録失敗。ブラウザの通知権限を確認してください。');
             }
         }
 
-        // 通知を解除する関数
         async function unsubscribePush() {
             try {
                 const registration = await navigator.serviceWorker.ready;
                 const sub = await registration.pushManager.getSubscription();
                 
                 if (sub) {
-                    // 修正ポイント: JSONの中にある 'endpoint' をキーにしてDBを検索・削除
                     const { error } = await client
                         .from('push_subscriptions')
                         .delete()
                         .eq('subscription->>endpoint', sub.endpoint);
                     
-                    // DB側の削除でエラーが出たらここで処理を止める（状態不整合を防ぐため）
-                    if (error) throw error;
-                    
-                    // DBから正常に消えた場合のみ、ブラウザ側の購読を解除する
+                    if (error) {
+                        throw error;
+                    }
                     await sub.unsubscribe();
                 }
                 alert('OS通知を解除しました。');
