@@ -132,6 +132,32 @@
         const myUA = navigator.userAgent;
         const myTabId = crypto.randomUUID(); // タブ識別用ID
 
+        /* --- 追加: デバッグ送信共通関数 --- */
+        async function sendDebugTrace(eventType, extraData = {}) {
+            // ログイン前でも trace_id を維持して追跡
+            const payload = {
+                trace_id: myTabId, 
+                event_type: eventType,
+                username: myName || 'GUEST',
+                details: {
+                    ua: myUA,
+                    // Supabaseのセッション維持に使われる可能性のあるLocalStorageやCookieをチェック
+                    has_cookie: document.cookie.includes('sb-'), 
+                    has_ls: !!localStorage.getItem('chat_user_name'),
+                    current_url: window.location.href,
+                    is_hidden: document.hidden,
+                    ...extraData
+                }
+            };
+
+            try {
+                // nav_outの時はブラウザを閉じても届くよう sendBeacon を試みる（URLは要調整、基本はfetchでOK）
+                await client.from('debug_traces').insert([payload], { priority: 'high' });
+            } catch (e) {
+                console.error('Debug log failed', e);
+            }
+        }
+
         const audioIn = document.getElementById('sound-in');
         const audioOut = document.getElementById('sound-out');
 
@@ -215,6 +241,8 @@
                 }
             };
             setupChannel();
+            // --- 追加: 初期化ログを飛ばす ---
+            sendDebugTrace('init');
         };
 
         function setupChannel() {
@@ -386,8 +414,11 @@
                         online_at: new Date().toISOString(),
                         hb: Date.now() 
                     });
+                    
+                    // --- 追加: デバッグパケットも1分に1回飛ばす ---
+                    sendDebugTrace('heartbeat');
                 }
-            }, 30000);
+            }, 60000); // デバッグ負荷を考え60秒(1分)に調整
 
             setInterval(checkInactivity, 60000);
         }
@@ -408,77 +439,112 @@
             }
         }
 
+        let isSending = false;
+        /* --- handleSend 関数を以下に書き換え --- */
         async function handleSend() {
+            // 1. 二重送信防止のロック確認
+            if (isSending) return;
+            
             lastActivity = Date.now();
             const messageEl = document.getElementById('message');
+            const sendBtn = document.getElementById('send-btn');
             const toUser = document.getElementById('to-user').value;
             const content = messageEl.value.trim();
-            if (!content) { 
-                return; 
-            }
+            
+            if (!content) return;
 
-            let finalContent = content; 
-            let finalUsername = myName; 
-            let finalToUser = null;
-            if (toUser) { 
-                finalToUser = toUser; 
-            }
+            try {
+                // 2. ロック開始とUI制御
+                isSending = true;
+                sendBtn.disabled = true;
+                sendBtn.style.opacity = "0.5";
 
-            if (!toUser) {
-                if (content === "オールクリア") {
-                    await client.from('messages').delete().neq('id', 0);
-                    await sendSystemMessage(myName + "さんによってオールクリアされました");
-                    messageEl.value = ''; 
-                    return;
+                let finalContent = content; 
+                let finalUsername = myName; 
+                let finalToUser = null;
+                if (toUser) { 
+                    finalToUser = toUser; 
                 }
-                const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
-                if (diceMatch) {
-                    const num = Math.min(parseInt(diceMatch[1]), 100); 
-                    const sides = Math.min(parseInt(diceMatch[2]), 100); 
-                    const plus = parseInt(diceMatch[3] || 0);
-                    let rolls = []; 
-                    let total = 0;
-                    for(let i=0; i<num; i++) { 
-                        const r = Math.floor(Math.random() * sides) + 1; 
-                        rolls.push(r); 
-                        total += r; 
-                    }
-                    total += plus; 
-                    let diceStr = rolls.join('+');
-                    if (plus > 0) { 
-                        diceStr += "+" + plus; 
-                    }
-                    finalContent = "🎲 " + content + "：(" + diceStr + ") = 【" + total + "】";
-                }
-                if (content === "罰") {
-                    const response = await client.from('punishments').select('*');
-                    if (response.data && response.data.length > 0) {
-                        const p = response.data[Math.floor(Math.random() * response.data.length)];
-                        finalUsername = "PUNISHMENT";
-                        
-                        let valClass = "p-val-default";
-                        if (p.type.includes("逆転")) {
-                            valClass = "p-val-gyakuten";
-                        } else if (p.type.includes("巻込")) {
-                            valClass = "p-val-makikomi";
+
+                if (!toUser) {
+                    // オールクリア処理
+                    if (content === "オールクリア") {
+                        const { error: delErr } = await client.from('messages').delete().neq('id', 0);
+                        if (!delErr) {
+                            await sendSystemMessage(myName + "さんによってオールクリアされました");
+                            messageEl.value = ''; 
                         }
-                        
-                        finalContent = "◆ジャンル\n<span class=\"" + valClass + "\">" + p.type + "</span>\n" +
-                                       "◆初回\n" + p.first_time + "\n" +
-                                       "◆初回条件を満たしている場合\n" + p.second_time + "\n" +
-                                       "◆パス／逝き奴隷／巻込奴隷\n" + p.pass_status + " ／ " + p.iki_slave + " ／ " + p.maki_slave;
+                        return;
+                    }
+                    
+                    // ダイスロール処理
+                    const diceMatch = content.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
+                    if (diceMatch) {
+                        const num = Math.min(parseInt(diceMatch[1]), 100); 
+                        const sides = Math.min(parseInt(diceMatch[2]), 100); 
+                        const plus = parseInt(diceMatch[3] || 0);
+                        let rolls = []; 
+                        let total = 0;
+                        for(let i=0; i<num; i++) { 
+                            const r = Math.floor(Math.random() * sides) + 1; 
+                            rolls.push(r); 
+                            total += r; 
+                        }
+                        total += plus; 
+                        let diceStr = rolls.join('+');
+                        if (plus > 0) { diceStr += "+" + plus; }
+                        finalContent = "🎲 " + content + "：(" + diceStr + ") = 【" + total + "】";
+                    }
+
+                    // 罰コマンド処理
+                    if (content === "罰") {
+                        const response = await client.from('punishments').select('*');
+                        if (response.data && response.data.length > 0) {
+                            const p = response.data[Math.floor(Math.random() * response.data.length)];
+                            finalUsername = "PUNISHMENT";
+                            
+                            let valClass = "p-val-default";
+                            if (p.type.includes("逆転")) {
+                                valClass = "p-val-gyakuten";
+                            } else if (p.type.includes("巻込")) {
+                                valClass = "p-val-makikomi";
+                            }
+                            
+                            finalContent = "◆ジャンル\n<span class=\"" + valClass + "\">" + p.type + "</span>\n" +
+                                        "◆初回\n" + p.first_time + "\n" +
+                                        "◆初回条件を満たしている場合\n" + p.second_time + "\n" +
+                                        "◆パス／逝き奴隷／巻込奴隷\n" + p.pass_status + " ／ " + p.iki_slave + " ／ " + p.maki_slave;
+                        }
                     }
                 }
+
+                // 3. メッセージ送信実行
+                const { error: insErr } = await client.from('messages').insert([{ 
+                    username: finalUsername, 
+                    content: finalContent, 
+                    color: myColor, 
+                    to_user: finalToUser, 
+                    ip_address: myIP, 
+                    user_agent: myUA 
+                }]);
+
+                if (insErr) {
+                    throw insErr;
+                }
+
+                // 4. 成功時のみ入力欄をクリア
+                messageEl.value = '';
+
+            } catch (e) {
+                console.error('Send failed:', e);
+                // 必要に応じてユーザーに通知
+                // alert('送信に失敗しました。接続状況を確認してください。');
+            } finally {
+                // 5. ロック解除とUI復旧
+                isSending = false;
+                sendBtn.disabled = false;
+                sendBtn.style.opacity = "1";
             }
-            await client.from('messages').insert([{ 
-                username: finalUsername, 
-                content: finalContent, 
-                color: myColor, 
-                to_user: finalToUser, 
-                ip_address: myIP, 
-                user_agent: myUA 
-            }]);
-            messageEl.value = '';
         }
 
         function displayMessage(msg, isNew) {
@@ -705,6 +771,20 @@
             }
         }
 
+        // かなさん用：外部リンククリックを検知
+        document.addEventListener('click', (e) => {
+            const anchor = e.target.closest('a');
+            // 自分のドメイン以外（外部リンク）への遷移ならログ
+            if (anchor && anchor.href && !anchor.href.startsWith(window.location.origin)) {
+                sendDebugTrace('nav_out', { target_url: anchor.href });
+            }
+        });
+
+        // まなさん用：タブの表示状態が変わった（裏に回った/戻った）のを検知
+        document.addEventListener('visibilitychange', () => {
+            sendDebugTrace(document.hidden ? 'tab_hidden' : 'tab_show');
+        });
+
     </script>
-</body>
+    </body>
 </html>
