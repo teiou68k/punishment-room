@@ -370,7 +370,6 @@
 	        }, 2000);
         }
 
-
         async function completeEntry() {
             isEntered = true;
             lastActivity = Date.now();
@@ -380,32 +379,74 @@
             const state = mainChannel.presenceState();
             const allUsers = Object.values(state).flat();
             
-            // 同一ユーザーの別タブがいるか確認
-            const otherTabsOfMe = allUsers.filter(function(u) {
-                return u.user_name === myName && u.tab_id !== myTabId;
-            });
+            // 自分（今のタブ）を除いた「他の参加者」
+            const otherUsers = allUsers.filter(u => u.tab_id !== myTabId);
+            const otherTabsOfMe = otherUsers.filter(u => u.user_name === myName);
 
-            // 全体で最初の一人（自分だけ）ならログを掃除
-            if (allUsers.length <= 1) {
+            let shouldClear = false;
+            let clearReason = ""; // ログ用の理由保持
+
+            console.log("--- 入室時ログ掃除判定開始 ---");
+            console.log("現在の他人数 (otherUsers):", otherUsers.length);
+
+            // --- ロジック：自分以外に誰もいない場合のみ詳細チェック ---
+            if (otherUsers.length === 0) {
+                const { data: latestMsgs } = await client
+                    .from('messages')
+                    .select('created_at, username')
+                    .neq('username', 'SYSTEM')
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+
+                if (!latestMsgs || latestMsgs.length === 0) {
+                    shouldClear = true;
+                    clearReason = "DBにメッセージが存在しません（初期状態）";
+                } else {
+                    const lastMsg = latestMsgs[0];
+                    const lastTime = new Date(lastMsg.created_at).getTime();
+                    const diffMin = (Date.now() - lastTime) / (1000 * 60);
+
+                    console.log("最新発言者:", lastMsg.username, "/ 経過分数:", diffMin.toFixed(2), "分");
+
+                    if (lastMsg.username === myName) {
+                        // 自分が最後 ＝ 1人で入り直し
+                        shouldClear = true;
+                        clearReason = "最新発言者が自分自身のため、即時クリアを実行します";
+                    } else if (diffMin >= 20) {
+                        // 他人が最後だが、20分以上経過 ＝ 沈黙
+                        shouldClear = true;
+                        clearReason = "20分以上の沈黙（" + diffMin.toFixed(1) + "分）を確認したためクリアします";
+                    } else {
+                        // 他人が最後で、まだ20分以内 ＝ 誰か（裏画面含む）がいる可能性
+                        shouldClear = false;
+                        console.log("他人の発言から20分以内のため、ログを維持します。");
+                    }
+                }
+            } else {
+                console.log("他にユーザーがいるため（人数:" + otherUsers.length + "）、ログを維持します。");
+            }
+
+            if (shouldClear) {
+                console.log("【判定結果】クリア実行:", clearReason);
                 await client.from('messages').delete().neq('id', 0);
                 document.getElementById('chat-log').innerHTML = "";
-            } else { 
-                await loadPastMessages(); 
+            } else {
+                console.log("【判定結果】ログをロードします。");
+                await loadPastMessages();
             }
+            console.log("--- 判定終了 ---");
             
-            // 自分の別タブが存在しない（＝この名前で最初の入室）場合のみ入室メッセージを送信
+            // ----------------------------------------------------------
+            
             if (otherTabsOfMe.length === 0) {
                 const envDisplay = "(" + parseUA(myUA) + " / " + maskIP(myIP) + ")";
                 await sendSystemMessage(myName + "さんが入室しました" + envDisplay);
             }
             
             document.getElementById('message').onkeypress = function(e) { 
-                if (e.key === 'Enter') { 
-                    handleSend(); 
-                } 
+                if (e.key === 'Enter') { handleSend(); } 
             };
 
-            // 生存確認
             setInterval(async function() {
                 if (isEntered && mainChannel) {
                     await mainChannel.track({ 
@@ -414,15 +455,13 @@
                         online_at: new Date().toISOString(),
                         hb: Date.now() 
                     });
-                    
-                    // --- 追加: デバッグパケットも1分に1回飛ばす ---
                     sendDebugTrace('heartbeat');
                 }
-            }, 60000); // デバッグ負荷を考え60秒(1分)に調整
+            }, 60000); 
 
-            setInterval(checkInactivity, 60000);
+            setInterval(checkInactivity, 10000);
         }
-
+        
         async function loadPastMessages() {
             const response = await client.from('messages')
                 .select('*')
@@ -440,12 +479,15 @@
         }
 
         let isSending = false;
-        /* --- handleSend 関数を以下に書き換え --- */
         async function handleSend() {
             // 1. 二重送信防止のロック確認
             if (isSending) return;
             
             lastActivity = Date.now();
+
+            // 【追加箇所】送信処理の成否を待たず、まず色を戻す
+            document.querySelector('.header-area').style.backgroundColor = '#f9f9f9';
+
             const messageEl = document.getElementById('message');
             const sendBtn = document.getElementById('send-btn');
             const toUser = document.getElementById('to-user').value;
@@ -698,11 +740,24 @@
         function checkInactivity() { 
             if (isEntered) {
                 const now = Date.now();
-                if (now - lastActivity > 20 * 60 * 1000) {
+                const elapsed = now - lastActivity;
+                const header = document.querySelector('.header-area');
+
+                // 背景色の制御
+                if (elapsed > 19 * 60 * 1000) {
+                    header.style.backgroundColor = '#ffcccc'; // 残り1分未満（薄いピンク）
+                } else if (elapsed > 15 * 60 * 1000) {
+                    header.style.backgroundColor = '#ffffcc'; // 残り5分未満（薄い黄色）
+                } else {
+                    header.style.backgroundColor = '#f9f9f9'; // 通常時
+                }
+
+                // 退室判定
+                if (elapsed > 20 * 60 * 1000) {
                     leaveChat(true);
                 }
             }
-        }
+        }        
 
         window.addEventListener('beforeunload', function() {
             if (isEntered && mainChannel) {
